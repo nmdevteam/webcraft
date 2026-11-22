@@ -11,6 +11,7 @@ This repository is a working MVP, not a claim that every item in the original pr
 - A live component renderer, text editing, common style properties, an advanced style panel for layout, typography, borders, shadows, sizing, spacing, and opacity, plus tablet/mobile per-component overrides.
 - Multi-select components with Shift/Cmd-click on the canvas or layers. Copy, cut, paste, duplicate, and delete selections as one undoable operation; the inspector continues editing the primary selection. Keyboard shortcuts include Ctrl/Cmd+C/X/V/D, Delete/Backspace, Escape, and Ctrl/Cmd+Z/Y.
 - Per-project title, description, language, brand color and font, logo and favicon selection, safe name/property metadata tags, custom CSS, and configurable mobile/tablet breakpoints. These settings are applied in the editor preview and standalone export.
+- A project-scoped design system with editable color palettes, shared color tokens, H1–H6/body typography presets, spacing and sizing tokens, and global button, link, card, input, and navigation styles. Element controls store CSS-variable references, so token edits synchronize across every page; the same validated variables/rules are included in preview and standalone CSS, with custom CSS applied last.
 - A local raster-image library for PNG, JPEG, WebP, and GIF, with folders, search, reusable images, display-name editing, physical filename renaming, move and delete controls. Renames re-upload the existing image through Payload and update saved page and website-setting references. Uploads are capped at 5 MB; SVG and other active/vector formats are rejected.
 - Autosave after a short idle period, manual save and Ctrl/Cmd+S, retry on network errors, revision checks, and best-effort IndexedDB recovery drafts.
 - A standalone React + Vite + TypeScript generator. ZIP downloads, local-folder exports, and GitHub pushes are validated and production-built in an isolated temporary directory. The generated site does not require the builder or CMS at runtime.
@@ -20,6 +21,7 @@ This repository is a working MVP, not a claim that every item in the original pr
 ## Current limits
 
 - Component drag-and-drop and reordering operate at the page's top level; nested grouping and group/ungroup are not implemented.
+- Typography supports the built-in Inter, system-ui, Georgia, and Arial stacks; Google Fonts loading and custom font uploads are not part of this phase. The eight foundational color tokens remain required, and a token used by saved content or global styles cannot be deleted.
 - Asset renames replace the upload through Payload and update saved references across project pages and settings; SVG uploads remain disabled for safety.
 - Custom CSS is checked for known executable and import patterns, but custom CSS is still author-supplied styling, not a sandbox; review it before publishing. Custom metadata accepts safe `name` and `property` tags rather than arbitrary HTML or scripts.
 - Direct local-folder export depends on browser File System Access API support and user permission; the validated ZIP export is the portable fallback.

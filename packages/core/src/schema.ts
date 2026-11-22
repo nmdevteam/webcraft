@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { ColorValueSchema, createDefaultDesignSystem, DesignSystemSchema } from './design-system'
+export type { DesignSystem, DesignTokenGroup, TypographyPresetName } from './design-system'
 
 export const COMPONENT_TYPES = [
   'section', 'container', 'heading', 'paragraph', 'text', 'button', 'link', 'image', 'video', 'icon', 'divider', 'spacer',
@@ -13,7 +15,7 @@ const safeCssValue = z.string().max(120).refine(
 )
 
 const BaseStyleSchema = z.object({
-  color: safeCssValue.optional(), backgroundColor: safeCssValue.optional(), fontSize: safeCssValue.optional(), fontWeight: safeCssValue.optional(),
+  color: safeCssValue.optional(), backgroundColor: safeCssValue.optional(), fontFamily: safeCssValue.optional(), fontSize: safeCssValue.optional(), fontWeight: safeCssValue.optional(),
   fontStyle: z.enum(['normal', 'italic', 'oblique']).optional(), textDecoration: z.enum(['none', 'underline', 'line-through']).optional(),
   textTransform: z.enum(['none', 'uppercase', 'lowercase', 'capitalize']).optional(),
   textAlign: z.enum(['left', 'center', 'right', 'justify']).optional(), lineHeight: safeCssValue.optional(), letterSpacing: safeCssValue.optional(),
@@ -100,7 +102,7 @@ export const ProjectSettingsSchema = z.object({
   language: z.string().min(2).max(12).regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/).default('en'),
   title: z.string().max(120).default('My website'),
   description: z.string().max(300).default(''),
-  primaryColor: z.string().regex(/^#[0-9a-f]{6}$/i).default('#5b5ce2'),
+  primaryColor: ColorValueSchema.default('#5b5ce2'),
   fontFamily: z.enum(['Inter', 'system-ui', 'Georgia', 'Arial']).default('Inter'),
   logoPath: safeMediaPath.default(''),
   faviconPath: safeMediaPath.default(''),
@@ -112,7 +114,13 @@ export const ProjectSettingsSchema = z.object({
   }).strict().default({ mobile: 600, tablet: 900 }).superRefine((value, ctx) => {
     if (value.mobile >= value.tablet) ctx.addIssue({ code: 'custom', path: ['mobile'], message: 'The mobile breakpoint must be smaller than the tablet breakpoint.' })
   }),
-}).strict()
+  designSystem: DesignSystemSchema.optional(),
+}).strict().transform((settings) => {
+  const designSystem = settings.designSystem ?? createDefaultDesignSystem(settings.primaryColor, settings.fontFamily)
+  const activePalette = designSystem.palettes.find((palette) => palette.id === designSystem.activePaletteId)!
+  const primaryColor = activePalette.tokens.find((token) => token.id === 'primary')!.value
+  return { ...settings, primaryColor, fontFamily: designSystem.typography.bodyFontFamily, designSystem }
+})
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
 
 const safeHrefForPage = safeHref
@@ -134,7 +142,7 @@ export function safeUrl(value: string | undefined, fallback = '#'): string {
 }
 
 const cssProperties: Partial<Record<keyof BaseNodeStyle, string>> = {
-  color: 'color', backgroundColor: 'background-color', fontSize: 'font-size', fontWeight: 'font-weight', fontStyle: 'font-style',
+  color: 'color', backgroundColor: 'background-color', fontFamily: 'font-family', fontSize: 'font-size', fontWeight: 'font-weight', fontStyle: 'font-style',
   textDecoration: 'text-decoration', textTransform: 'text-transform', textAlign: 'text-align', lineHeight: 'line-height', letterSpacing: 'letter-spacing',
   padding: 'padding', paddingTop: 'padding-top', paddingRight: 'padding-right', paddingBottom: 'padding-bottom', paddingLeft: 'padding-left',
   margin: 'margin', marginTop: 'margin-top', marginRight: 'margin-right', marginBottom: 'margin-bottom', marginLeft: 'margin-left',

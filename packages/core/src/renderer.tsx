@@ -2,12 +2,14 @@ import React from 'react'
 import type { CSSProperties } from 'react'
 import type { BaseNodeStyle, BuilderNode, ComponentType, ProjectSettings } from './schema'
 import { responsiveStyleCss, safeUrl } from './schema'
+import { safeDesignSystemCss } from './design-system'
 
 export type NodeEditProps = {
   selectedId?: string | null
   selectedIds?: string[]
   editMode?: boolean
   onSelect?: (id: string, additive?: boolean) => void
+  onClearSelection?: () => void
   onTextChange?: (id: string, text: string) => void
   pageSlugs?: string[]
 }
@@ -20,7 +22,7 @@ const blockTags: Partial<Record<ComponentType, keyof React.JSX.IntrinsicElements
 }
 
 const styleKeys: (keyof BaseNodeStyle)[] = [
-  'color', 'backgroundColor', 'fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textTransform', 'textAlign', 'lineHeight', 'letterSpacing',
+  'color', 'backgroundColor', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textTransform', 'textAlign', 'lineHeight', 'letterSpacing',
   'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
   'borderRadius', 'border', 'borderWidth', 'borderStyle', 'borderColor', 'boxShadow', 'gap', 'rowGap', 'columnGap', 'display', 'flexDirection',
   'justifyContent', 'alignItems', 'flexWrap', 'maxWidth', 'minWidth', 'width', 'maxHeight', 'minHeight', 'height', 'overflow', 'opacity',
@@ -80,7 +82,7 @@ export function RenderNode({ node, selectedId, selectedIds, editMode = false, on
   const isSelected = selectedIds ? selectedIds.includes(node.id) : selectedId === node.id
   const common = {
     key: node.id,
-    className: `wc-node wc-${node.type}${isSelected ? ' is-selected' : ''}`,
+    className: `wc-node wc-${node.type}${node.type === 'heading' ? ` wc-heading-level-${node.props.level ?? 2}` : ''}${isSelected ? ' is-selected' : ''}`,
     style: safeStyle(node),
     'data-node-id': node.id,
     onPointerDown: editMode ? (event: React.PointerEvent) => { event.stopPropagation(); onSelect?.(node.id, event.shiftKey || event.metaKey || event.ctrlKey) } : undefined,
@@ -119,14 +121,14 @@ export function SiteRenderer({ nodes, settings, ...props }: NodeEditProps & { no
   const responsiveCss = responsiveStyleCss(nodes, breakpoints)
   const logoPath = settings?.logoPath && /^\/media\/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(?:png|jpe?g|webp|gif)$/i.test(settings.logoPath) ? settings.logoPath : ''
   const logoDisplayPath = useAuthenticatedMediaUrl(logoPath)
-  const themeCss = settings ? `:root{--wc-primary:${settings.primaryColor};font-family:${settings.fontFamily},system-ui,sans-serif}` : ''
-  return <>
+  const themeCss = settings ? safeDesignSystemCss(settings.designSystem) : ''
+  return <div className="wc-site" onPointerDown={props.editMode ? (event) => { if (event.target === event.currentTarget) props.onClearSelection?.() } : undefined}>
     {logoPath && <header className="wc-site-brand"><img src={logoDisplayPath || undefined} alt={`${settings?.title || 'Website'} logo`} /></header>}
     {themeCss && <style data-webcraft-theme>{themeCss}</style>}
     {responsiveCss && <style data-webcraft-responsive>{responsiveCss}</style>}
     {settings?.customCss && <style data-webcraft-custom>{settings.customCss}</style>}
     {nodes.map((node) => <RenderNode key={node.id} node={node} {...props} />)}
-  </>
+  </div>
 }
 
 function labelFor(type: ComponentType): string {

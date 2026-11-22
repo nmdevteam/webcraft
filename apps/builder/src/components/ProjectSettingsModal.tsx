@@ -1,21 +1,35 @@
 import type { FormEvent } from 'react'
 import { Plus, Save, Trash2 } from 'lucide-react'
-import type { ProjectSettings } from '@webcraft/core/schema'
+import type { BuilderNode, DesignSystem, ProjectSettings } from '@webcraft/core/schema'
 import { Button, Input } from './ui'
+import { DesignSystemManager } from './DesignSystemManager'
 
 type Asset = { id: string; filename: string; name?: string; alt?: string }
 type Props = {
   projectName: string
   settings: ProjectSettings
   assets: Asset[]
+  pages: BuilderNode[][]
   saving: boolean
   onChange: (settings: ProjectSettings) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onClose: () => void
 }
 
-export function ProjectSettingsModal({ projectName, settings, assets, saving, onChange, onSubmit, onClose }: Props) {
+export function ProjectSettingsModal({ projectName, settings, assets, pages, saving, onChange, onSubmit, onClose }: Props) {
   const patch = (values: Partial<ProjectSettings>) => onChange({ ...settings, ...values })
+  const changePrimaryColor = (value: string) => {
+    const designSystem = settings.designSystem!
+    patch({ primaryColor: value, designSystem: { ...designSystem, palettes: designSystem.palettes.map((palette) => palette.id !== designSystem.activePaletteId ? palette : { ...palette, tokens: palette.tokens.map((token) => token.id === 'primary' ? { ...token, value } : token) }) } })
+  }
+  const changeFontFamily = (value: ProjectSettings['fontFamily']) => {
+    const designSystem = settings.designSystem!
+    patch({ fontFamily: value, designSystem: { ...designSystem, typography: { ...designSystem.typography, bodyFontFamily: value, headingFontFamily: value } } })
+  }
+  const changeDesignSystem = (designSystem: DesignSystem) => {
+    const activePalette = designSystem.palettes.find((palette) => palette.id === designSystem.activePaletteId)!
+    patch({ designSystem, primaryColor: activePalette.tokens.find((token) => token.id === 'primary')!.value, fontFamily: designSystem.typography.bodyFontFamily })
+  }
   const mediaPath = (asset: Asset) => `/media/${asset.filename}`
   const updateMeta = (index: number, values: Partial<ProjectSettings['customMetaTags'][number]>) => {
     const customMetaTags = [...settings.customMetaTags]
@@ -29,8 +43,8 @@ export function ProjectSettingsModal({ projectName, settings, assets, saving, on
     <label className="field-label">Meta description<textarea className="input textarea" value={settings.description} maxLength={300} onChange={(e)=>patch({ description: e.target.value })}/></label>
     <div className="settings-form-grid">
       <label className="field-label">Language tag<Input value={settings.language} maxLength={12} placeholder="en or en-US" onChange={(e)=>patch({ language: e.target.value })}/></label>
-      <label className="field-label">Brand color<input className="input color-input" type="color" value={settings.primaryColor} onChange={(e)=>patch({ primaryColor: e.target.value })}/></label>
-      <label className="field-label">Default font<select className="input" value={settings.fontFamily} onChange={(e)=>patch({ fontFamily: e.target.value as ProjectSettings['fontFamily'] })}><option>Inter</option><option>system-ui</option><option>Georgia</option><option>Arial</option></select></label>
+      <label className="field-label">Brand color<div className="brand-color-control"><Input value={settings.primaryColor} maxLength={80} placeholder="#5b5ce2 or rgb()/hsl()" onChange={(e)=>changePrimaryColor(e.target.value)}/><input className="input color-input" type="color" aria-label="Pick brand color in HEX" value={/^#[0-9a-f]{6}$/i.test(settings.primaryColor) ? settings.primaryColor : '#5b5ce2'} onChange={(e)=>changePrimaryColor(e.target.value)}/></div></label>
+      <label className="field-label">Default font<select className="input" value={settings.fontFamily} onChange={(e)=>changeFontFamily(e.target.value as ProjectSettings['fontFamily'])}><option>Inter</option><option>system-ui</option><option>Georgia</option><option>Arial</option></select></label>
     </div>
     <div className="settings-form-grid">
       <label className="field-label">Website logo<select className="input" value={settings.logoPath} onChange={(e)=>patch({ logoPath: e.target.value })}><option value="">No logo</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.alt || asset.filename}</option>)}</select></label>
@@ -40,6 +54,7 @@ export function ProjectSettingsModal({ projectName, settings, assets, saving, on
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Responsive breakpoints</b><small>Widths used by responsive styles and preview device modes.</small></div></div>
       <div className="settings-form-grid"><label className="field-label">Mobile max width (px)<Input type="number" min={360} max={767} value={settings.breakpoints.mobile} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, mobile: Number(e.target.value) } })}/></label><label className="field-label">Tablet max width (px)<Input type="number" min={768} max={1280} value={settings.breakpoints.tablet} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, tablet: Number(e.target.value) } })}/></label></div>
     </section>
+    <DesignSystemManager system={settings.designSystem!} nodes={pages.flat()} customCss={settings.customCss} onChange={changeDesignSystem}/>
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Custom CSS</b><small>Added to the standalone site. @import and executable URL schemes are blocked.</small></div></div>
       <label className="field-label">Styles<textarea className="input textarea code-textarea" value={settings.customCss} maxLength={20000} spellCheck={false} placeholder=".wc-site-brand { padding: 1rem; }" onChange={(e)=>patch({ customCss: e.target.value })}/></label><small className="settings-help">{settings.customCss.length.toLocaleString()} / 20,000 characters</small>
     </section>

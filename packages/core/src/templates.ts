@@ -6,18 +6,18 @@ export type Template = { id: string; name: string; category: TemplateCategory; d
 
 const n = (id: string, type: ComponentType, text: string, style: BuilderNode['style'] = {}, children: BuilderNode[] = []): BuilderNode => ({ id, type, props: { text }, style, children })
 const hero = (name: string, category: TemplateCategory, description: string): BuilderNode[] => [
-  n('nav', 'navbar', name, { padding: '1rem 2rem', display: 'flex', backgroundColor: '#ffffff' }, [n('nav-home', 'link', 'Home', { color: '#3f46a5' }), n('nav-about', 'link', 'About'), n('nav-contact', 'link', 'Contact')]),
-  n('hero', 'hero', category === 'Portfolio' ? 'Ideas, made visible.' : 'Build something remarkable.', { padding: '6rem 2rem', textAlign: 'center', backgroundColor: '#f2f3ff', borderRadius: '1rem' }, [
+  n('nav', 'navbar', name, {}, [n('nav-home', 'link', 'Home'), n('nav-about', 'link', 'About'), n('nav-contact', 'link', 'Contact')]),
+  n('hero', 'hero', category === 'Portfolio' ? 'Ideas, made visible.' : 'Build something remarkable.', { padding: '6rem 2rem', textAlign: 'center', backgroundColor: 'var(--wc-color-surface)', borderRadius: '1rem' }, [
     n('hero-copy', 'paragraph', description, { fontSize: '1.1rem', maxWidth: '42rem', margin: '1rem auto' }),
-    n('hero-button', 'button', 'Explore more', { backgroundColor: '#5658db', color: '#ffffff', padding: '0.8rem 1.3rem', borderRadius: '0.7rem' }),
+    n('hero-button', 'button', 'Explore more'),
   ]),
   n('features', 'features', 'Designed to move you forward', { padding: '3rem 1rem' }, [
-    n('feature-1', 'card', 'Thoughtful by design', { padding: '1.5rem', backgroundColor: '#ffffff', borderRadius: '1rem', boxShadow: '0 8px 24px rgba(28, 32, 66, .08)' }, [n('feature-1-copy', 'paragraph', 'A clear, focused experience that puts your goals first.')]),
-    n('feature-2', 'card', 'Made for momentum', { padding: '1.5rem', backgroundColor: '#ffffff', borderRadius: '1rem', boxShadow: '0 8px 24px rgba(28, 32, 66, .08)' }, [n('feature-2-copy', 'paragraph', 'Simple tools help you turn your next idea into action.')]),
-    n('feature-3', 'card', 'Ready to grow', { padding: '1.5rem', backgroundColor: '#ffffff', borderRadius: '1rem', boxShadow: '0 8px 24px rgba(28, 32, 66, .08)' }, [n('feature-3-copy', 'paragraph', 'Flexible foundations that look great on every screen.')]),
+    n('feature-1', 'card', 'Thoughtful by design', {}, [n('feature-1-copy', 'paragraph', 'A clear, focused experience that puts your goals first.')]),
+    n('feature-2', 'card', 'Made for momentum', {}, [n('feature-2-copy', 'paragraph', 'Simple tools help you turn your next idea into action.')]),
+    n('feature-3', 'card', 'Ready to grow', {}, [n('feature-3-copy', 'paragraph', 'Flexible foundations that look great on every screen.')]),
   ]),
-  n('cta', 'cta', 'Your next chapter starts here', { padding: '3rem 2rem', textAlign: 'center', backgroundColor: '#222443', color: '#ffffff', borderRadius: '1rem' }, [n('cta-button', 'button', 'Let’s talk', { backgroundColor: '#7778ef', color: '#ffffff', padding: '0.75rem 1.1rem', borderRadius: '0.7rem' })]),
-  n('footer', 'footer', `${name} · Built with care`, { padding: '2rem', color: '#6b7280', textAlign: 'center' }),
+  n('cta', 'cta', 'Your next chapter starts here', { padding: '3rem 2rem', textAlign: 'center', backgroundColor: 'var(--wc-color-primary)', color: 'var(--wc-color-on-primary)', borderRadius: '1rem' }, [n('cta-button', 'button', 'Let’s talk')]),
+  n('footer', 'footer', `${name} · Built with care`, { padding: '2rem', color: 'var(--wc-color-neutral)', textAlign: 'center' }),
 ]
 
 export const TEMPLATES: Template[] = [

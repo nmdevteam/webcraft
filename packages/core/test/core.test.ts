@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { PageDataSchema, ProjectSettingsSchema, responsiveStyleCss, validateTree } from '../src/schema'
+import { PageDataSchema, ProjectSettingsSchema, responsiveStyleCss, styleDeclarations, validateTree } from '../src/schema'
 import { templateById } from '../src/templates'
 import { generateSource } from '../src/exporter'
+import { createDefaultDesignSystem, DesignSystemSchema, designSystemCss, safeDesignSystemCss } from '../src/design-system'
 
 const home = () => ({ title: 'Home', slug: 'home', isHome: true, nodes: templateById('business').nodes })
 
@@ -44,6 +45,96 @@ describe('WebCraft canonical page model', () => {
     expect(css).toContain('@media(max-width:600px)')
     expect(css).toContain('[data-node-id="responsive"]{color:#112233}')
     expect(css).toContain('grid-template-columns:repeat(2, minmax(0, 1fr))')
+  })
+})
+
+describe('project design system', () => {
+  it('normalizes legacy settings into a project-scoped system without changing brand choices', () => {
+    const settings = ProjectSettingsSchema.parse({ primaryColor: '#123456', fontFamily: 'Georgia' })
+    expect(settings.primaryColor).toBe('#123456')
+    expect(settings.fontFamily).toBe('Georgia')
+    expect(settings.designSystem?.palettes[0]?.tokens.find((token) => token.id === 'primary')?.value).toBe('#123456')
+    expect(settings.designSystem?.typography.bodyFontFamily).toBe('Georgia')
+    expect(settings.designSystem?.typography.presets.h3.fontWeight).toBe(650)
+    expect(ProjectSettingsSchema.parse({ primaryColor: 'hsl(210 50% 40%)' }).primaryColor).toBe('hsl(210 50% 40%)')
+  })
+
+  it('keeps live preview CSS safe while a manager field contains an incomplete value', () => {
+    const draft = createDefaultDesignSystem()
+    draft.spacingTokens[0]!.value = ''
+    expect(safeDesignSystemCss(draft)).toBe('')
+  })
+
+  it('lets starter buttons, cards, and navigation inherit the global design system', () => {
+    const nodes = templateById('business').nodes
+    const nav = nodes.find((node) => node.id === 'nav')!
+    const heroButton = nodes.find((node) => node.id === 'hero')!.children.find((node) => node.id === 'hero-button')!
+    const featureCard = nodes.find((node) => node.id === 'features')!.children.find((node) => node.id === 'feature-1')!
+    expect(nav.style).toEqual({})
+    expect(heroButton.style).toEqual({})
+    expect(featureCard.style).toEqual({})
+  })
+
+  it('rejects duplicate and unsafe tokens and enforces bounded collections and weight steps', () => {
+    const defaults = createDefaultDesignSystem()
+    const duplicate = structuredClone(defaults)
+    duplicate.palettes[0]!.tokens[1]!.id = duplicate.palettes[0]!.tokens[0]!.id
+    expect(() => DesignSystemSchema.parse(duplicate)).toThrow(/unique/)
+
+    const unsafe = structuredClone(defaults)
+    unsafe.globalStyles.button.boxShadow = '0; color:red'
+    expect(() => DesignSystemSchema.parse(unsafe)).toThrow(/prohibited/)
+
+    const invalidColor = structuredClone(defaults)
+    invalidColor.palettes[0]!.tokens[0]!.value = 'url(javascript:alert(1))'
+    expect(() => DesignSystemSchema.parse(invalidColor)).toThrow()
+
+    const invalidId = structuredClone(defaults)
+    invalidId.palettes[0]!.tokens[0]!.id = 'Invalid_ID'
+    expect(() => DesignSystemSchema.parse(invalidId)).toThrow()
+
+    const longName = structuredClone(defaults)
+    longName.palettes[0]!.tokens[0]!.name = 'x'.repeat(49)
+    expect(() => DesignSystemSchema.parse(longName)).toThrow()
+
+    const tooManyColors = structuredClone(defaults)
+    tooManyColors.palettes[0]!.tokens = Array.from({ length: 33 }, (_, index) => ({ id: `color-${index}`, name: `Color ${index}`, value: '#112233' }))
+    expect(() => DesignSystemSchema.parse(tooManyColors)).toThrow()
+
+    const invalidWeight = structuredClone(defaults)
+    invalidWeight.typography.presets.h3.fontWeight = 675
+    expect(() => DesignSystemSchema.parse(invalidWeight)).toThrow()
+
+    const excessive = structuredClone(defaults)
+    excessive.spacingTokens = Array.from({ length: 33 }, (_, index) => ({ id: `space-${index}`, name: `Space ${index}`, value: '1rem' }))
+    expect(() => DesignSystemSchema.parse(excessive)).toThrow()
+
+    const excessivePalettes = structuredClone(defaults)
+    excessivePalettes.palettes = Array.from({ length: 13 }, (_, index) => ({ ...defaults.palettes[0]!, id: `palette-${index}`, name: `Palette ${index}` }))
+    expect(() => DesignSystemSchema.parse(excessivePalettes)).toThrow()
+  })
+
+  it('emits shared variables and keeps element token references valid in preview and exported CSS', () => {
+    const system = createDefaultDesignSystem('#aa2244', 'Arial')
+    system.spacingTokens.find((token) => token.id === 'md')!.value = '1.25rem'
+    const css = designSystemCss(system)
+    expect(css).toContain('--wc-color-primary:#aa2244')
+    expect(css).toContain('--wc-primary:var(--wc-color-primary)')
+    expect(css).toContain('--wc-spacing-md:1.25rem')
+    expect(css).toContain('.wc-heading-level-3{font-family:var(--wc-typography-heading-font-family)')
+
+    const style = { color: 'var(--wc-color-primary)', padding: 'var(--wc-spacing-md)', width: 'var(--wc-size-container-md)' }
+    const nodes = validateTree([{ id: 'token-heading', type: 'heading', props: { text: 'Tokenized', level: 3 }, style, children: [] }])
+    expect(styleDeclarations(nodes[0]!.style)).toContain('color:var(--wc-color-primary)')
+    const customCss = '.wc-site{background:#010203}'
+    const files = generateSource({ name: 'Tokens', settings: { designSystem: system, customCss }, pages: [{ title: 'Home', slug: 'home', isHome: true, nodes }] })
+    const exportedCss = files['src/styles.css']!.content
+    expect(exportedCss).toContain('--wc-color-primary:#aa2244')
+    expect(exportedCss).toContain('--wc-spacing-md:1.25rem')
+    expect(exportedCss.lastIndexOf(customCss)).toBeGreaterThan(exportedCss.indexOf('.wc-site{min-height:100%'))
+    expect(files['src/components/SiteRenderer.tsx']!.content).toContain('className="wc-site"')
+    expect(files['src/components/SiteRenderer.tsx']!.content).toContain('wc-heading-level-')
+    expect(JSON.parse(files['src/site.json']!.content).pages[0].nodes[0].style.color).toBe('var(--wc-color-primary)')
   })
 })
 
