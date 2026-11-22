@@ -12,3 +12,7 @@ Advisories addressed:
 - `dompurify`: [GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p), [GHSA-6688-9rhm-gjv2](https://github.com/advisories/GHSA-6688-9rhm-gjv2), [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f), [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7), [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr)
 
 An audit is a point-in-time check, not a guarantee that future dependency releases will remain vulnerability-free. Run `pnpm audit` again as dependencies change.
+
+## Application security checks
+
+The PostgreSQL-backed runtime smoke test also verified that anonymous project and uploaded-file reads are denied, the legacy public media URL does not serve uploads, and an authenticated owner can retrieve their file through Payload's asset endpoint. Page project membership is immutable after creation, and the export path reads files from private storage. Asset uploads remain limited to raster formats and 5 MB per file. These checks are specific to the local MVP; the project is not designed as an internet-facing multi-tenant service.

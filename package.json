@@ -9,7 +9,7 @@
     "setup": "node scripts/setup.mjs",
     "dev": "dotenv -e .env -- concurrently -k -n cms,builder -c blue,green \"pnpm --filter @webcraft/cms dev\" \"pnpm --filter @webcraft/builder dev\"",
     "build": "pnpm --filter @webcraft/core build && dotenv -e .env -- pnpm --filter @webcraft/cms build && pnpm --filter @webcraft/builder build",
-    "test": "pnpm --filter @webcraft/core test",
+    "test": "pnpm --filter @webcraft/core test && pnpm --filter @webcraft/builder test",
     "test:integration": "pnpm --filter @webcraft/core test:integration",
     "typecheck": "pnpm --filter @webcraft/core typecheck && pnpm --filter @webcraft/cms typecheck && pnpm --filter @webcraft/builder typecheck",
     "security:audit": "pnpm audit --prod"

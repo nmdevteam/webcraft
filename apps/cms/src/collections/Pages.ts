@@ -17,8 +17,12 @@ export const Pages: CollectionConfig = {
       const projectId = typeof projectValue === 'object' && projectValue !== null ? projectValue.id : projectValue
       if (!projectId) throw new Error('A page must belong to a project')
       await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user })
+      const originalProject = originalDoc?.project
+      const originalProjectId = typeof originalProject === 'object' && originalProject !== null ? originalProject.id : originalProject
+      if (operation === 'update' && String(projectId) !== String(originalProjectId)) throw new Error('Pages cannot be moved between projects.')
       if (operation === 'create') data.owner = req.user.id
       else data.owner = originalDoc?.owner
+      data.project = operation === 'create' ? data.project : originalDoc?.project
       const page = PageDataSchema.parse({
         title: data.title ?? originalDoc?.title,
         slug: data.slug ?? originalDoc?.slug,

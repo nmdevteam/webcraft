@@ -2,13 +2,13 @@
 
 ## Local builder and CMS
 
-The builder is a Vite/React application served on `127.0.0.1:5173`; the Payload/Next service owns authentication, persistence, and server-only GitHub operations on `127.0.0.1:3000`. The browser calls Payload's REST API with a session token held for the current tab. PostgreSQL is the canonical store for owner-scoped projects, pages, settings, and asset metadata. Uploaded raster files are kept separately in `apps/cms/public/media`, so database backups alone are not complete backups.
+The builder is a Vite/React application served on `127.0.0.1:5173`; the Payload/Next service owns authentication, persistence, and server-only GitHub operations on `127.0.0.1:3000`. The browser calls Payload's REST API with a session token held for the current tab. PostgreSQL is the canonical store for owner-scoped projects, pages, settings, and asset metadata. Uploaded raster files are stored separately in `apps/cms/.webcraft/media`, so database backups alone are not complete backups.
 
 Payload's PostgreSQL adapter was selected because the brief requires a durable local relational database; see the official [PostgreSQL adapter guide](https://payloadcms.com/docs/database/postgres). Payload's installation requirements and configuration model are documented in the [installation guide](https://payloadcms.com/docs/getting-started/installation). The Vite builder uses the [Payload REST API](https://payloadcms.com/docs/rest-api/overview) rather than a public deployment or hosted data service.
 
 ## Owner and project boundaries
 
-The local instance is deliberately single-owner. The first account is the only account that can be created; collection access rules scope reads, updates, and deletes to that owner. Hooks also verify that a page or image's project belongs to the current user and validate incoming page data using the same schema as the source generator.
+The local instance is deliberately single-owner. The first account is the only account that can be created; collection access rules scope reads, updates, and deletes to that owner. Hooks verify that a page or image belongs to an owned project, keep page and asset project relationships immutable after creation, and validate incoming page data using the same schema as the source generator.
 
 ## Generated websites
 
@@ -16,7 +16,7 @@ The canonical component tree is JSON validated with Zod. The editor preview uses
 
 ## Uploads and local media
 
-Only PNG, JPEG, WebP, and GIF are accepted. The browser and Payload both enforce a 5 MB per-file limit; Payload also caps the whole multipart request and file count. SVG is intentionally disabled until the project has a reviewed sanitizer and serving policy. See Payload's official [upload overview](https://payloadcms.com/docs/upload/overview) for `staticDir`, MIME restrictions, and Payload-wide multipart limits.
+Only PNG, JPEG, WebP, and GIF are accepted. The browser and Payload both enforce a 5 MB per-file limit; Payload also caps the whole multipart request and file count. SVG is intentionally disabled until the project has a reviewed sanitizer and serving policy. Originals and generated thumbnails are stored outside Next's public directory in `.webcraft/media`; the builder fetches them through Payload's authenticated file endpoint, and server-side exports read the same private files. The CMS startup, build, and start commands safely migrate older files from `public/media` into private storage. Back up the database and this media directory together. See Payload's official [upload overview](https://payloadcms.com/docs/upload/overview) for upload configuration and multipart limits.
 
 ## GitHub credentials and pushes
 
@@ -24,4 +24,4 @@ GitHub credentials stay on the local server. A fine-grained token is checked aga
 
 ## Deliberate scope limits
 
-This MVP favors validated page trees and a safe, reproducible export over arbitrary HTML. Nested drag-and-drop, grouping, copy/paste, advanced settings such as custom CSS/HTML metadata or responsive breakpoints, an SVG sanitizer, direct folder export, and true database-backed runtime integration tests are not yet implemented. See the README's current-limits section before relying on a missing feature.
+This MVP favors validated page trees and a safe, reproducible export over arbitrary HTML. Nested drag-and-drop, grouping, and group/ungroup are not implemented; SVG upload remains disabled. Direct local-folder export requires the browser File System Access API. See the README's current-limits section before relying on a missing feature.

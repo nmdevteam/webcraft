@@ -15,7 +15,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
   if (!user) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
 
   const { projectId } = await context.params
-  if (!/^[a-f\d]{24}$/i.test(projectId)) return NextResponse.json({ error: 'Invalid project ID.' }, { status: 400 })
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(projectId)) return NextResponse.json({ error: 'Invalid project ID.' }, { status: 400 })
 
   try {
     await payload.findByID({ collection: 'projects', id: projectId, user, overrideAccess: false })
@@ -24,7 +24,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
   }
 
   try {
-    for (const collection of ['pages', 'assets'] as const) {
+    for (const collection of ['pages', 'assets', 'asset-folders'] as const) {
       while (true) {
         const batch = await payload.find({
           collection,

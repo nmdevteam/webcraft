@@ -1,27 +1,29 @@
 # WebCraft
 
-WebCraft is a local-first visual website-builder foundation built around Payload CMS, PostgreSQL, React, Vite, and TypeScript. Run it on your own machine to manage website projects, edit pages visually, preview them at desktop/tablet/mobile widths, recover drafts, export a standalone site ZIP, and push generated source to GitHub.
+WebCraft is a local-first visual website-builder foundation built around Payload CMS, PostgreSQL, React, Vite, and TypeScript. Run it on your own machine to manage website projects, edit and preview pages at desktop/tablet/mobile widths, recover drafts, export a standalone site as a ZIP or (where supported) directly into a local folder, and push generated source to GitHub.
 
-This repository is an early, working MVP—not a claim that every item in the original product brief is complete. The implemented scope and the remaining gaps are listed below so contributors can see what is real today.
+This repository is a working MVP, not a claim that every item in the original product brief is complete. The implemented scope and remaining limits are listed below.
 
 ## What works today
 
 - A local dashboard for creating, searching, renaming, duplicating, exporting, and deleting website projects, with ten template categories and starter layouts.
 - A single-owner local account, owner-scoped project/page/image access, separate pages per project, homepage selection, slugs, and page SEO title/description.
-- A live component renderer, text editing, basic style properties, top-level drag/reorder, duplicate/delete, selected-component copy/paste, undo/redo, and desktop/tablet/mobile canvas and clean preview modes.
+- A live component renderer, text editing, common style properties, an advanced style panel for layout, typography, borders, shadows, sizing, spacing, and opacity, plus tablet/mobile per-component overrides.
+- Per-project title, description, language, brand color and font, logo and favicon selection, safe name/property metadata tags, custom CSS, and configurable mobile/tablet breakpoints. These settings are applied in the editor preview and standalone export.
+- A local raster-image library for PNG, JPEG, WebP, and GIF, with folders, search, reusable images, display-name editing, physical filename renaming, move and delete controls. Renames re-upload the existing image through Payload and update saved page and website-setting references. Uploads are capped at 5 MB; SVG and other active/vector formats are rejected.
 - Autosave after a short idle period, manual save and Ctrl/Cmd+S, retry on network errors, revision checks, and best-effort IndexedDB recovery drafts.
-- A local raster-image library for PNG, JPEG, WebP, and GIF. Each upload is capped at 5 MB; SVG and other active/vector formats are deliberately rejected.
-- A standalone React + Vite + TypeScript generator. Downloaded ZIPs and GitHub pushes are first installed and production-built in an isolated temporary directory. The generated site does not require the builder or CMS at runtime.
+- A standalone React + Vite + TypeScript generator. ZIP downloads, local-folder exports, and GitHub pushes are validated and production-built in an isolated temporary directory. The generated site does not require the builder or CMS at runtime.
+- Browser folder export through the File System Access API where available. It asks for a parent folder, validates output paths, and creates a new non-overwriting project directory; use ZIP export in browsers that do not support the picker.
 - Local GitHub connection, repository listing/creation, and source push. GitHub tokens are encrypted on the local server and are not returned to the browser. New repositories default to private in the app; the owner can choose public visibility.
 
 ## Current limits
 
-- Component drag-and-drop and reordering currently operate at the page's top level; nested grouping and group/ungroup are not implemented yet.
-- The asset library supports upload, search, reuse, and delete, but not folders or filename renaming. SVG upload is disabled for safety.
-- Project settings cover website name, description, language, primary color, and font. Favicon/logo management, custom CSS/HTML metadata, and configurable responsive breakpoints are not implemented yet. The current inspector exposes basic colors, typography, spacing, width, and alignment, not every advanced style property in the full brief.
-- Export is provided as a validated ZIP; direct export to a local folder is not supported by a browser-based app.
-- The local database and uploaded media are stored separately. Back up both the Docker volume and `apps/cms/public/media`.
-- Runtime CMS/database behavior needs a working local PostgreSQL service. CI and this sandbox can typecheck/build source without PostgreSQL, but those checks do not replace a real end-to-end run against a database.
+- Component drag-and-drop and reordering operate at the page's top level; nested grouping and group/ungroup are not implemented.
+- Asset renames replace the upload through Payload and update saved references across project pages and settings; SVG uploads remain disabled for safety.
+- Custom CSS is checked for known executable and import patterns, but custom CSS is still author-supplied styling, not a sandbox; review it before publishing. Custom metadata accepts safe `name` and `property` tags rather than arbitrary HTML or scripts.
+- Direct local-folder export depends on browser File System Access API support and user permission; the validated ZIP export is the portable fallback.
+- The local database and uploaded media are stored separately. Back up both the database data and `apps/cms/.webcraft/media`. On startup/build, existing files in the former public media folder are moved into private storage.
+- WebCraft is designed for a single-owner local installation, not an internet-facing multi-tenant service. Keep the CMS and PostgreSQL on loopback unless you add and review an appropriate deployment security model.
 
 ## Requirements
 
@@ -48,11 +50,11 @@ Open the builder at <http://127.0.0.1:5173>. On first launch, create the single 
 pnpm typecheck
 pnpm test                         # core schema and source-generator tests
 pnpm test:integration             # install and production-build a generated sample site
-pnpm build                         # core, CMS, and builder production builds
-pnpm audit                        # dependency advisory scan
+pnpm build                        # core, CMS, and builder production builds
+pnpm security:audit               # production dependency advisory scan
 ```
 
-The generated-project validator uses `npm install --ignore-scripts --include=dev` in a fresh temporary directory, then runs the generated `npm run build`, and removes the directory afterward. It accepts at most 300 source files and 8 MB of combined source. Uploaded image data is additionally limited to 5 MB combined per export.
+The generated-project validator uses `npm install --ignore-scripts --include=dev` in a fresh temporary directory, then runs the generated `npm run build`, and removes the directory afterward. It accepts at most 300 source files and 8 MB of combined source. An export supports at most 100 pages and 100 project assets; uploaded image data is additionally limited to 5 MB combined per export. The dashboard, editor, and preview paginate their project, page, asset, and folder lists rather than silently hiding records after the first 100.
 
 ## GitHub connection
 
@@ -62,7 +64,7 @@ The app requires an explicit repository selection for each push, validates the g
 
 ## Local data and security notes
 
-WebCraft is intended for a single-owner local installation, not an internet-facing multi-tenant service. Keep its API and database on loopback, use unique secrets from `pnpm run setup`, and do not expose PostgreSQL publicly. The CMS enforces owner-scoped access, validates component trees and page fields, restricts uploaded image MIME types/size, rejects unsafe URL schemes and CSS constructs, and escapes generated HTML metadata. The generated renderer uses React text rendering rather than raw HTML insertion. GitHub tokens, `.env`, local media, and the database volume are excluded from source control.
+The CMS enforces owner-scoped access, prevents pages and assets from being reassigned between projects, and serves uploaded media through Payload's authenticated file endpoint rather than an unauthenticated public directory. It validates component trees, project settings and page fields, restricts uploaded image MIME types and size, rejects unsafe URL schemes and known unsafe CSS constructs, and escapes generated HTML metadata. The generated renderer uses React text rendering rather than raw HTML insertion. Generated file paths are checked before a local folder export is written. GitHub tokens, `.env`, private media, and the database volume are excluded from source control.
 
 For more detail, see [Security Policy](SECURITY.md), [Architecture decisions](docs/architecture.md), and the [dependency security audit](docs/security-audit.md).
 

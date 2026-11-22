@@ -14,8 +14,9 @@ export async function projectExport(payload: any, projectId: string, user: any):
     payload.find({ collection: 'assets', where: { project: { equals: projectId } }, limit: 100, depth: 0, sort: 'createdAt', user }),
   ])
   if (!pages.docs.length) throw new Error('This project has no pages to export.')
-  if (assets.docs.length > 100) throw new Error('This project has too many uploaded images to export.')
-  const mediaRoot = resolve(process.cwd(), 'public/media')
+  if (Number(pages.totalDocs ?? pages.docs.length) > 100) throw new Error('Exports support at most 100 pages per project.')
+  if (Number(assets.totalDocs ?? assets.docs.length) > 100) throw new Error('Exports support at most 100 assets per project.')
+  const mediaRoot = resolve(process.cwd(), '.webcraft/media')
   const exportAssets: { filename: string; contentBase64: string }[] = []
   let totalAssetBytes = 0
   for (const asset of assets.docs as any[]) {

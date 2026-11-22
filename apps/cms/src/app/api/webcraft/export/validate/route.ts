@@ -30,7 +30,9 @@ export async function POST(request: Request) {
       payload.find({ collection: 'assets', where: { project: { equals: projectId } }, limit: 100, depth: 0, user }),
     ])
     if (!pages.docs.length) return json({ error: 'This project needs at least one page before it can be exported.' }, 400)
-    const mediaRoot = resolve(process.cwd(), 'public/media')
+    if (Number(pages.totalDocs ?? pages.docs.length) > 100) return json({ error: 'Exports support at most 100 pages per project.' }, 422)
+    if (Number(assetResult.totalDocs ?? assetResult.docs.length) > 100) return json({ error: 'Exports support at most 100 assets per project.' }, 422)
+    const mediaRoot = resolve(process.cwd(), '.webcraft/media')
     const assets = await Promise.all(assetResult.docs.map(async (asset) => {
       const filename = String(asset.filename ?? '')
       if (basename(filename) !== filename || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(png|jpe?g|webp|gif)$/i.test(filename)) throw new Error('An uploaded asset has an unsafe filename.')

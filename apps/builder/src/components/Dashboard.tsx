@@ -2,14 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Activity, ArrowDownToLine, ArrowRight, Boxes, Check, ChevronDown, Clock3, Copy, FilePlus2, FolderKanban, Globe2, Layers3, LogOut, MoreHorizontal, Plus, Search, Settings2, Sparkles, Sun, Moon, Trash2, WandSparkles } from 'lucide-react'
 import { TEMPLATES, templateById } from '@webcraft/core/templates'
-import { api, jsonBody } from '../api'
+import { api, apiAllDocs, jsonBody } from '../api'
 import { useAuthStore } from '../store/auth'
 import { downloadProjectZip } from '../lib/export'
 import { Button, IconButton, Input, Status } from './ui'
 
 type Project = { id: string; name: string; category: string; templateId: string; settings: any; createdAt: string; updatedAt: string }
 type Page = { id: string; title: string; slug: string; isHome: boolean; nodes: any[] }
-type ProjectsResponse = { docs: Project[]; totalDocs: number }
 
 export function Dashboard() {
   const navigate = useNavigate()
@@ -29,9 +28,9 @@ export function Dashboard() {
   async function refresh() {
     setLoading(true)
     try {
-      const result = await api<ProjectsResponse>('/projects?limit=100&depth=0&sort=-updatedAt')
-      setProjects(result.docs)
-      const counts = await Promise.all(result.docs.map(async (project) => {
+      const loadedProjects = await apiAllDocs<Project>('/projects?limit=100&depth=0&sort=-updatedAt')
+      setProjects(loadedProjects)
+      const counts = await Promise.all(loadedProjects.map(async (project) => {
         const response = await api<{ totalDocs: number }>(`/pages?where[project][equals]=${encodeURIComponent(project.id)}&limit=1&depth=0`)
         return [project.id, response.totalDocs] as const
       }))
@@ -66,7 +65,7 @@ export function Dashboard() {
     setBusy(true); setError('')
     try {
       const copy = await api<Project>('/projects', { method: 'POST', body: jsonBody({ name: `${project.name} copy`, category: project.category, templateId: project.templateId, settings: project.settings }) })
-      const { docs } = await api<{ docs: Page[] }>(`/pages?where[project][equals]=${encodeURIComponent(project.id)}&limit=100&depth=0`)
+      const docs = await apiAllDocs<Page>(`/pages?where[project][equals]=${encodeURIComponent(project.id)}&limit=100&depth=0`)
       for (const page of docs) await api('/pages', { method: 'POST', body: jsonBody({ title: page.title, slug: page.slug, isHome: page.isHome, nodes: page.nodes, revision: 0, project: copy.id }) })
       await refresh(); setNotice(`Duplicated “${project.name}”.`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Duplicate failed.') }
