@@ -1,0 +1,22 @@
+{
+  "name": "webcraft-local-builder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first visual website builder powered by Payload CMS and PostgreSQL.",
+  "packageManager": "pnpm@10.12.1",
+  "engines": { "node": ">=24.22.3 <25" },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "dotenv -e .env -- concurrently -k -n cms,builder -c blue,green \"pnpm --filter @webcraft/cms dev\" \"pnpm --filter @webcraft/builder dev\"",
+    "build": "pnpm --filter @webcraft/core build && dotenv -e .env -- pnpm --filter @webcraft/cms build && pnpm --filter @webcraft/builder build",
+    "test": "pnpm --filter @webcraft/core test",
+    "test:integration": "pnpm --filter @webcraft/core test:integration",
+    "typecheck": "pnpm --filter @webcraft/core typecheck && pnpm --filter @webcraft/cms typecheck && pnpm --filter @webcraft/builder typecheck",
+    "audit": "pnpm audit --prod"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.7",
+    "dotenv-cli": "11.1.0",
+    "typescript": "5.9.3"
+  }
+}

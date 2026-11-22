@@ -1,0 +1,14 @@
+node_modules/
+.pnpm-store/
+.env
+.env.*
+!.env.example
+.webcraft/
+apps/cms/.next/
+apps/cms/uploads/
+apps/cms/public/media/
+apps/builder/dist/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
