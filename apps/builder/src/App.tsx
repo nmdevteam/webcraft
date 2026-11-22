@@ -8,6 +8,7 @@ const Dashboard = lazy(() => import('./components/Dashboard').then((module) => (
 const Editor = lazy(() => import('./components/Editor').then((module) => ({ default: module.Editor })))
 const Preview = lazy(() => import('./components/Preview').then((module) => ({ default: module.Preview })))
 const Settings = lazy(() => import('./components/Settings').then((module) => ({ default: module.Settings })))
+const Marketplace = lazy(() => import('./components/Marketplace').then((module) => ({ default: module.Marketplace })))
 
 export default function App() {
   const { token, user, setSession, clear } = useAuthStore()
@@ -24,6 +25,7 @@ export default function App() {
       <Route path="/editor/:projectId" element={<Editor />} />
       <Route path="/preview/:projectId" element={<Preview />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/marketplace" element={<Marketplace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   </Suspense>

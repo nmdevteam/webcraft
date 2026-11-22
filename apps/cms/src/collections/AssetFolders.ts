@@ -22,8 +22,8 @@ export const AssetFolders: CollectionConfig = {
       const name = String(data.name ?? originalDoc?.name ?? '').trim()
       if (!projectId) throw new Error('A folder must belong to a project')
       if (!name || name.length > 80 || /[\\/\0\r\n]/.test(name)) throw new Error('Folder names must be 1–80 characters and cannot contain slashes or line breaks.')
-      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user })
-      const existing = await req.payload.find({ collection: 'asset-folders', where: { project: { equals: projectId } }, limit: 1000, depth: 0, user: req.user })
+      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
+      const existing = await req.payload.find({ collection: 'asset-folders', where: { project: { equals: projectId } }, limit: 1000, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
       if (existing.docs.some((folder) => String(folder.id) !== String(originalDoc?.id ?? '') && String(folder.name).toLocaleLowerCase() === name.toLocaleLowerCase())) {
         throw new Error('A folder with this name already exists in the project.')
       }
@@ -34,7 +34,7 @@ export const AssetFolders: CollectionConfig = {
     }],
     beforeDelete: [async ({ id, req }) => {
       if (!req.user) throw new Error('Authentication is required')
-      const assets = await req.payload.find({ collection: 'assets', where: { folder: { equals: id } }, limit: 1, depth: 0, user: req.user })
+      const assets = await req.payload.find({ collection: 'assets', where: { folder: { equals: id } }, limit: 1, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
       if (assets.docs.length) throw new Error('Move assets out of this folder before deleting it.')
     }],
   },

@@ -30,7 +30,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
     }
     try {
       await payload.findByID({ collection: 'projects', id: projectId, user, overrideAccess: false, req: { transactionID } })
-      for (const collection of ['pages', 'assets', 'asset-folders', 'project-versions'] as const) {
+      for (const collection of ['pages', 'assets', 'asset-folders', 'project-versions', 'installed-components'] as const) {
         while (true) {
           const batch = await payload.find({
             collection,
@@ -45,7 +45,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
           for (const doc of batch.docs) {
             // Version records are immutable to API users; permit deletion only through this
             // owner-checked project cascade after the project itself was verified above.
-            await payload.delete({ collection, id: doc.id, user, overrideAccess: collection === 'project-versions', req: { transactionID } })
+            await payload.delete({ collection, id: doc.id, user, overrideAccess: collection === 'project-versions' || collection === 'installed-components', req: { transactionID } })
           }
         }
       }

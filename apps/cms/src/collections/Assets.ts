@@ -28,11 +28,11 @@ export const Assets: CollectionConfig = {
       if (!req.user) throw new Error('Authentication is required')
       const projectId = relatedId(data.project ?? originalDoc?.project)
       if (!projectId) throw new Error('An image must belong to a project')
-      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user })
+      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
       if (operation === 'update' && relatedId(originalDoc?.project) !== projectId) throw new Error('Assets cannot be moved between projects.')
       const folderId = relatedId(data.folder !== undefined ? data.folder : originalDoc?.folder)
       if (folderId) {
-        const folder = await req.payload.findByID({ collection: 'asset-folders', id: folderId, depth: 0, user: req.user })
+        const folder = await req.payload.findByID({ collection: 'asset-folders', id: folderId, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
         if (relatedId(folder.project) !== projectId) throw new Error('Choose a folder from this project.')
       }
       if (data.name !== undefined) {

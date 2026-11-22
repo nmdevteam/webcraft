@@ -3,6 +3,7 @@ import { PageDataSchema, PageUndoHistorySchema, ProjectSettingsSchema, ProjectVe
 import { templateById } from '../src/templates'
 import { generateSource } from '../src/exporter'
 import { createDefaultDesignSystem, DesignSystemSchema, designSystemCss, safeDesignSystemCss } from '../src/design-system'
+import { ComponentPackageSchema, MarketplacePackageSchema, TemplatePackageSchema, missingDesignTokens, packageCompatibilityError, packageForJsonExport } from '../src/marketplace'
 
 const home = () => ({ title: 'Home', slug: 'home', isHome: true, nodes: templateById('business').nodes })
 
@@ -210,5 +211,85 @@ describe('standalone source generator', () => {
   it('rejects unsafe asset names and duplicate page slugs', () => {
     expect(() => generateSource({ name: 'Test', settings: {}, pages: [home()] }, [{ filename: '../escape.png', contentBase64: 'aGVsbG8=' }])).toThrow(/filename/)
     expect(() => generateSource({ name: 'Test', settings: {}, pages: [home(), { ...home(), title: 'Also home' }] })).toThrow(/Duplicate page slug/)
+  })
+})
+
+describe('marketplace package validation', () => {
+  const componentPackage = (): any => ({
+    format: 'webcraft', formatVersion: 1, packageId: 'hero-pack', type: 'component', name: 'Hero block', description: 'A safe structured hero.', version: '1.0.0',
+    category: 'Hero sections', components: [{ id: 'hero', name: 'Hero', nodes: [{ id: 'hero-node', type: 'hero', props: { text: 'Welcome' }, style: {}, children: [] }] }], assets: [],
+  })
+  const templatePackage = (): any => ({
+    format: 'webcraft', formatVersion: 1, packageId: 'starter-site', type: 'template', name: 'Starter site', description: 'One-page start.', version: '1.0.0', category: 'Business',
+    settings: {}, pages: [{ title: 'Home', slug: 'home', isHome: true, nodes: [] }], assets: [],
+  })
+
+  it('validates and round-trips strict component packages with format compatibility defaults', () => {
+    const parsed = ComponentPackageSchema.parse(componentPackage())
+    expect(parsed.compatibility.minBuilderVersion).toBe('0.1.0')
+    expect(MarketplacePackageSchema.parse(JSON.parse(packageForJsonExport(parsed))).type).toBe('component')
+    expect(() => ComponentPackageSchema.parse({ ...componentPackage(), executable: 'alert(1)' })).toThrow()
+    expect(() => ComponentPackageSchema.parse({ ...componentPackage(), version: 'latest' })).toThrow()
+  })
+
+  it('tracks media references with query strings and fragments in component trees and template CSS', () => {
+    const asset = { filename: 'mark.png', mimeType: 'image/png', contentBase64: 'iVBORw0KGgo=' }
+    const template = templatePackage()
+    template.settings = { customCss: ".hero{background-image:url('/media/mark.png?width=320#hero')}" }
+    expect(() => TemplatePackageSchema.parse(template)).toThrow(/missing from the package/)
+    template.assets = [asset]
+    expect(TemplatePackageSchema.parse(template).assets).toHaveLength(1)
+
+    const component = componentPackage()
+    component.components[0]!.nodes[0]!.props.src = '/media/mark.png?width=320#hero'
+    expect(() => ComponentPackageSchema.parse(component)).toThrow(/missing from the package/)
+    component.assets = [asset]
+    expect(ComponentPackageSchema.parse(component).assets).toHaveLength(1)
+  })
+
+  it('rejects unsafe component trees and media references that are missing from package assets', () => {
+    const unsafe = componentPackage()
+    unsafe.components[0]!.nodes[0]!.props.href = 'javascript:alert(1)'
+    expect(() => ComponentPackageSchema.parse(unsafe)).toThrow()
+
+    const missingAsset = componentPackage()
+    missingAsset.components[0]!.nodes[0] = { id: 'hero-image', type: 'image', props: { src: '/media/missing.png', alt: 'Example' }, style: {}, children: [] }
+    expect(() => ComponentPackageSchema.parse(missingAsset)).toThrow(/missing from the package/)
+  })
+
+  it('requires exactly one homepage and validates the full settings and page tree in a template package', () => {
+    expect(TemplatePackageSchema.parse(templatePackage()).settings.designSystem).toBeDefined()
+    const duplicateHome = templatePackage()
+    duplicateHome.pages.push({ title: 'Second home', slug: 'about', isHome: true, nodes: [] })
+    expect(() => TemplatePackageSchema.parse(duplicateHome)).toThrow(/exactly one homepage/)
+    const missingCssAsset = templatePackage()
+    missingCssAsset.settings.customCss = 'body{background:url("/media/missing.png")}'
+    expect(() => TemplatePackageSchema.parse(missingCssAsset)).toThrow(/missing from the package/)
+  })
+
+  it('checks package format compatibility and project token requirements', () => {
+    const parsed = ComponentPackageSchema.parse({ ...componentPackage(), compatibility: { minBuilderVersion: '0.2.0' } })
+    expect(packageCompatibilityError(parsed)).toMatch(/requires WebCraft 0.2.0/)
+
+    const nodes = [{ id: 'token-node', type: 'heading' as const, props: {}, style: { color: 'var(--wc-color-custom)', padding: 'var(--wc-spacing-huge)' }, children: [] }]
+    expect(missingDesignTokens(nodes, {}).map((token) => `${token.group}:${token.id}`)).toEqual(['color:custom', 'spacing:huge'])
+    expect(missingDesignTokens(nodes, { designSystem: createDefaultDesignSystem() })).toEqual([{ group: 'color', id: 'custom' }, { group: 'spacing', id: 'huge' }])
+  })
+
+  it('rejects asset MIME/extension mismatches and invalid base64', () => {
+    const pkg = componentPackage()
+    pkg.assets = [{ filename: 'mark.png', mimeType: 'image/jpeg', contentBase64: 'aGVsbG8=' }]
+    expect(() => ComponentPackageSchema.parse(pkg)).toThrow(/MIME type does not match/)
+    pkg.assets = [{ filename: 'mark.png', mimeType: 'image/png', contentBase64: 'not base64!' }]
+    expect(() => ComponentPackageSchema.parse(pkg)).toThrow(/valid base64/)
+  })
+
+  it('checks embedded raster image signatures against the declared MIME type', () => {
+    const pkg = componentPackage()
+    pkg.components[0]!.nodes[0] = { id: 'hero-image', type: 'image', props: { src: '/media/mark.png', alt: 'Mark' }, style: {}, children: [] }
+    pkg.assets = [{ filename: 'mark.png', mimeType: 'image/png', contentBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWP4//8/AAX+Av5Y8msOAAAAAElFTkSuQmCC' }]
+    expect(ComponentPackageSchema.parse(pkg).assets).toHaveLength(1)
+    pkg.assets[0]!.contentBase64 = 'aGVsbG8='
+    expect(() => ComponentPackageSchema.parse(pkg)).toThrow(/image bytes do not match/)
   })
 })

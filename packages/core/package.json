@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./schema": "./src/schema.ts",
+    "./marketplace": "./src/marketplace.ts",
     "./templates": "./src/templates.ts",
     "./renderer": "./src/renderer.tsx",
     "./exporter": "./src/exporter.ts"
