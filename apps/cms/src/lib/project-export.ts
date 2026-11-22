@@ -7,11 +7,12 @@ export async function projectExport(payload: any, projectId: string, user: any):
   files: ReturnType<typeof createSource>
   projectName: string
   pageCount: number
+  settings: unknown
 }> {
-  const project = await payload.findByID({ collection: 'projects', id: projectId, depth: 0, user })
+  const project = await payload.findByID({ collection: 'projects', id: projectId, depth: 0, user, overrideAccess: false })
   const [pages, assets] = await Promise.all([
-    payload.find({ collection: 'pages', where: { project: { equals: projectId } }, limit: 100, depth: 0, sort: 'slug', user }),
-    payload.find({ collection: 'assets', where: { project: { equals: projectId } }, limit: 100, depth: 0, sort: 'createdAt', user }),
+    payload.find({ collection: 'pages', where: { project: { equals: projectId } }, limit: 100, depth: 0, sort: 'slug', user, overrideAccess: false }),
+    payload.find({ collection: 'assets', where: { project: { equals: projectId } }, limit: 100, depth: 0, sort: 'createdAt', user, overrideAccess: false }),
   ])
   if (!pages.docs.length) throw new Error('This project has no pages to export.')
   if (Number(pages.totalDocs ?? pages.docs.length) > 100) throw new Error('Exports support at most 100 pages per project.')
@@ -42,5 +43,5 @@ export async function projectExport(payload: any, projectId: string, user: any):
       nodes: page.nodes,
     })),
   }, exportAssets)
-  return { files, projectName: String(project.name), pageCount: pages.docs.length }
+  return { files, projectName: String(project.name), pageCount: pages.docs.length, settings: project.settings }
 }

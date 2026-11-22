@@ -16,6 +16,9 @@ import { NodeTokenControls } from './NodeTokenControls'
 import { AdvancedStylePanel } from './AdvancedStylePanel'
 import { SelectionActions } from './SelectionActions'
 import { InstalledComponentsPanel } from './InstalledComponentsPanel'
+import { ClipboardCheck } from 'lucide-react'
+import type { AnalysisFinding, WebsiteAnalysisReport } from '@webcraft/core/analysis'
+import { AnalysisReportDialog } from './AnalysisReportDialog'
 
 type Project = { id: string; name: string; category: string; templateId: string; settings: ProjectSettings; updatedAt: string }
 type Page = { id: string; title: string; slug: string; isHome: boolean; seoTitle?: string; seoDescription?: string; nodes: BuilderNode[]; revision: number; updatedAt: string; undoHistory?: PageUndoHistory }
@@ -71,6 +74,8 @@ export function Editor() {
   const [uploadBusy, setUploadBusy] = useState(false)
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [analysisBusy, setAnalysisBusy] = useState(false)
+  const [analysisReport, setAnalysisReport] = useState<WebsiteAnalysisReport | null>(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settings, setSettings] = useState<ProjectSettings>(() => ProjectSettingsSchema.parse({}))
   const [pushOpen, setPushOpen] = useState(false)
@@ -445,6 +450,24 @@ export function Editor() {
     catch (err) { setError(err instanceof Error ? err.message : 'Folder export failed.') }
     finally { setPushBusy(false) }
   }
+  async function runWebsiteAnalysis() {
+    setAnalysisBusy(true); setError('')
+    try {
+      await flushPage()
+      const report = await api<WebsiteAnalysisReport>(`/webcraft/projects/${encodeURIComponent(projectId)}/analysis`)
+      setAnalysisReport(report)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Website analysis failed.') }
+    finally { setAnalysisBusy(false) }
+  }
+  async function openAnalysisFinding(finding: AnalysisFinding) {
+    const target = pages.find((page) => page.slug === finding.pageSlug)
+    if (!target) { setAnalysisReport(null); setError('The page from this finding is no longer in the project. Run the analysis again.'); return }
+    setAnalysisReport(null)
+    try {
+      await switchPage(target)
+      if (finding.nodeId) store.getState().select(finding.nodeId)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not open the page from this finding.') }
+  }
   function updateStyle(field: keyof BaseNodeStyle, value: string | number | undefined, mode: 'desktop'|'tablet'|'mobile' = 'desktop') {
     if (!selectedNode) return
     const nextStyle = mode === 'desktop' ? { ...selectedNode.style, [field]: value } : { ...selectedNode.style, responsive: { ...selectedNode.style.responsive, [mode]: { ...selectedNode.style.responsive?.[mode], [field]: value } } }
@@ -467,7 +490,7 @@ export function Editor() {
   const canvasWidth = viewport === 'desktop' ? 1200 : settings.breakpoints[viewport]
 
   return <div className="editor-shell">
-    <header className="editor-toolbar"><div className="editor-brand"><IconButton label="Back to dashboard" onClick={() => navigate('/')}><ArrowLeft size={18}/></IconButton><span className="toolbar-divider"/><button className="editor-project-title" onClick={openProjectSettings}>{project.name}<ChevronDown size={14}/></button><span className="editor-page-title">/ {activePage.title}</span></div><div className="editor-actions"><span className={`save-indicator save-${saveStatus}`}><i/>{saveLabel}</span><span className="toolbar-divider"/><IconButton label="Undo" disabled={!pastLength} onClick={() => store.getState().undo()}><Undo2 size={17}/></IconButton><IconButton label="Redo" disabled={!futureLength} onClick={() => store.getState().redo()}><Redo2 size={17}/></IconButton><span className="toolbar-divider"/><div className="viewport-picker">{(['desktop','tablet','mobile'] as const).map((item) => <button key={item} className={viewport===item?'selected':''} onClick={() => setViewport(item)} aria-label={`${item} preview`} title={`${item} preview`}>{item==='desktop'?<Monitor size={16}/>:item==='tablet'?<Tablet size={16}/>:<Smartphone size={16}/>}</button>)}</div><Button size="sm" variant="ghost" onClick={() => navigate(`/preview/${projectId}?page=${activePage.id}`)}><Code2 size={15}/>Preview</Button><Button size="sm" variant="secondary" busy={pushBusy} onClick={() => void exportSource()}><ArrowDownToLine size={15}/>ZIP</Button><Button size="sm" variant="secondary" busy={pushBusy} onClick={() => void exportFolder()}><FolderOpen size={15}/>Folder</Button><Button size="sm" variant="primary" busy={saveStatus==='saving'} onClick={() => void savePage(true)}><Save size={15}/>Save</Button><Button size="sm" variant="secondary" onClick={() => void openPush()}><GitBranch size={15}/>Push</Button></div></header>
+    <header className="editor-toolbar"><div className="editor-brand"><IconButton label="Back to dashboard" onClick={() => navigate('/')}><ArrowLeft size={18}/></IconButton><span className="toolbar-divider"/><button className="editor-project-title" onClick={openProjectSettings}>{project.name}<ChevronDown size={14}/></button><span className="editor-page-title">/ {activePage.title}</span></div><div className="editor-actions"><span className={`save-indicator save-${saveStatus}`}><i/>{saveLabel}</span><span className="toolbar-divider"/><IconButton label="Undo" disabled={!pastLength} onClick={() => store.getState().undo()}><Undo2 size={17}/></IconButton><IconButton label="Redo" disabled={!futureLength} onClick={() => store.getState().redo()}><Redo2 size={17}/></IconButton><span className="toolbar-divider"/><div className="viewport-picker">{(['desktop','tablet','mobile'] as const).map((item) => <button key={item} className={viewport===item?'selected':''} onClick={() => setViewport(item)} aria-label={`${item} preview`} title={`${item} preview`}>{item==='desktop'?<Monitor size={16}/>:item==='tablet'?<Tablet size={16}/>:<Smartphone size={16}/>}</button>)}</div><Button size="sm" variant="secondary" busy={analysisBusy} onClick={() => void runWebsiteAnalysis()}><ClipboardCheck size={15}/>Analyze</Button><Button size="sm" variant="ghost" onClick={() => navigate(`/preview/${projectId}?page=${activePage.id}`)}><Code2 size={15}/>Preview</Button><Button size="sm" variant="secondary" busy={pushBusy} onClick={() => void exportSource()}><ArrowDownToLine size={15}/>ZIP</Button><Button size="sm" variant="secondary" busy={pushBusy} onClick={() => void exportFolder()}><FolderOpen size={15}/>Folder</Button><Button size="sm" variant="primary" busy={saveStatus==='saving'} onClick={() => void savePage(true)}><Save size={15}/>Save</Button><Button size="sm" variant="secondary" onClick={() => void openPush()}><GitBranch size={15}/>Push</Button></div></header>
     <div className="editor-workspace"><aside className="editor-left"><div className="editor-tabs">{tabItems.map(({id,label,icon:Icon})=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)} title={label}><Icon size={17}/><span>{label}</span></button>)}</div>
       <div className="editor-left-content">{tab==='elements' && <><div className="panel-intro"><b>Elements</b><small>Drag a component or click to add it.</small></div><div className="element-grid">{COMPONENT_TYPES.map((type) => <button key={type} className="element-tile" draggable onDragStart={(e)=>dragComponent(e,type)} onClick={()=>addNode(type)}><span className="element-symbol">{type==='heading'?'T':type==='paragraph'?'¶':type==='button'?'▰':type==='image'?'▧':type==='section'?'▤':type==='grid'?'▦':type==='link'?'↗':type==='video'?'▶':type==='divider'?'—':type==='spacer'?'↕':type==='icon'?'✦':type==='navbar'?'☰':type==='footer'?'▱':'◇'}</span><span>{labels[type]}</span><Plus size={13}/></button>)}</div><div className="panel-tip"><Move size={14}/>Drop onto the canvas to add. Reorder with drag and drop.</div></>}
       {tab==='pages' && <><div className="panel-intro split"><div><b>Pages</b><small>{pages.length} {pages.length===1?'page':'pages'}</small></div><IconButton label="Add page" onClick={()=>void newPage()}><Plus size={17}/></IconButton></div><div className="page-list">{pages.map((page)=><div className={`page-list-item ${page.id===activePage.id?'active':''}`} key={page.id}><button className="page-select" onClick={()=>void switchPage(page)}><span className="page-icon">{page.isHome?'⌂':'▤'}</span><span><b>{page.title}</b><small>/{page.slug}</small></span></button><button className="page-menu-trigger" aria-label={`Page actions for ${page.title}`} onClick={(e)=>{const menu=e.currentTarget.nextElementSibling as HTMLElement;menu.hidden=!menu.hidden}}><MoreHorizontal size={15}/></button><div className="page-menu" hidden><button onClick={()=>void renamePage(page)}>Rename</button><button onClick={()=>void duplicatePage(page)}>Duplicate</button><button onClick={()=>void setHome(page)}>{page.isHome?'Homepage':'Set as homepage'}</button><button className="menu-danger" onClick={()=>void deletePage(page)}>Delete</button></div></div>)}</div><Button className="wide" size="sm" onClick={()=>void newPage()}><Plus size={15}/>Add page</Button></>}
@@ -486,6 +509,7 @@ export function Editor() {
     {error && <div className="editor-toast error" role="alert">{error}<button onClick={()=>setError('')}><X size={15}/></button></div>}{notice && <div className="editor-toast success">{notice}<button onClick={()=>setNotice('')}><X size={15}/></button></div>}
     {projectSettingsOpen && project && <ProjectSettingsModal projectName={project.name} settings={settings} assets={assets} pages={pages.map((page)=>page.id===activePage.id?nodes:page.nodes)} saving={settingsSaving} onChange={setSettings} onSubmit={(e)=>void saveProjectSettings(e)} onClose={()=>setProjectSettingsOpen(false)} onOpenHistory={()=>{setProjectSettingsOpen(false);void openHistory()}}/>}
     {historyOpen && project && <HistoryModal projectId={projectId} project={project} pages={pages.map((page)=>page.id===activePage.id?{...page,nodes}:page)} onClose={()=>setHistoryOpen(false)} onRestored={async()=>{await loadProject();setNotice('Project version restored.')}}/>}
+    {analysisReport && <AnalysisReportDialog report={analysisReport} onClose={() => setAnalysisReport(null)} onOpenPage={(finding) => void openAnalysisFinding(finding)}/> }
     {selectedNode && <AdvancedStylePanel node={selectedNode} onUpdate={(mode,field,value)=>updateStyle(field,value,mode)}/>}
     {selectedIds.length > 0 && <SelectionActions count={selectedIds.length} onCopy={() => copySelection()} onDuplicate={() => duplicateSelection()} onDelete={() => deleteSelection()}/> }
     {pushOpen && <div className="modal-backdrop"><div className="modal-card"><div className="modal-head"><span className="modal-icon"><GitBranch size={18}/></span><button type="button" className="close-modal" onClick={()=>setPushOpen(false)}>×</button></div><span className="eyebrow">GITHUB PUSH</span><h2>Choose a repository</h2><p>WebCraft generates and validates a standalone Vite site before committing its source.</p>{repositories.length ? <label className="field-label">Repository<select className="input select-input" value={selectedRepo} onChange={(e)=>setSelectedRepo(e.target.value)}>{repositories.map((repo)=><option key={repo.fullName} value={repo.fullName}>{repo.fullName} · {repo.private?'Private':'Public'}</option>)}</select></label> : <div className="settings-empty">No repositories found. Create one in Settings first.</div>}<div className="modal-actions"><Button type="button" onClick={()=>setPushOpen(false)}>Cancel</Button><Button variant="primary" busy={pushBusy} disabled={!selectedRepo} onClick={()=>void pushToGitHub()}><GitBranch size={15}/>Validate & push</Button></div></div></div>}

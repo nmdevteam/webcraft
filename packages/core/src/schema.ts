@@ -97,17 +97,38 @@ const MetaTagSchema = z.object({
   key: z.string().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9:_-]*$/),
   content: z.string().max(300),
 }).strict()
+const siteOrigin = z.string().max(300).default('').refine((value) => {
+  if (!value) return true
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash
+  } catch { return false }
+}, 'Enter an absolute HTTP(S) site origin such as https://example.com')
+const structuredData = z.string().max(10_000).default('').superRefine((value, ctx) => {
+  if (!value.trim()) return
+  try {
+    const parsed = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !['https://schema.org', 'http://schema.org'].includes(parsed['@context']) || typeof parsed['@type'] !== 'string' || !parsed['@type'].trim()) {
+      ctx.addIssue({ code: 'custom', message: 'Use one JSON-LD object with @context set to schema.org and a non-empty @type.' })
+    }
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'Structured data must be valid JSON.' })
+  }
+})
 
 export const ProjectSettingsSchema = z.object({
   language: z.string().min(2).max(12).regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/).default('en'),
   title: z.string().max(120).default('My website'),
   description: z.string().max(300).default(''),
+  siteUrl: siteOrigin,
   primaryColor: ColorValueSchema.default('#5b5ce2'),
   fontFamily: z.enum(['Inter', 'system-ui', 'Georgia', 'Arial']).default('Inter'),
   logoPath: safeMediaPath.default(''),
   faviconPath: safeMediaPath.default(''),
+  socialImagePath: safeMediaPath.default(''),
   customCss: safeCustomCss.default(''),
   customMetaTags: z.array(MetaTagSchema).max(16).default([]),
+  structuredData,
   historyIntervalMinutes: z.number().int().min(0).max(1440).default(15),
   breakpoints: z.object({
     mobile: z.number().int().min(360).max(767).default(600),

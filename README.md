@@ -10,10 +10,11 @@ This repository is a working MVP, not a claim that every item in the original pr
 - A single-owner local account, owner-scoped project/page/image access, separate pages per project, homepage selection, slugs, and page SEO title/description.
 - A live component renderer, text editing, common style properties, an advanced style panel for layout, typography, borders, shadows, sizing, spacing, and opacity, plus tablet/mobile per-component overrides.
 - Multi-select components with Shift/Cmd-click on the canvas or layers. Copy, cut, paste, duplicate, and delete selections as one undoable operation; the inspector continues editing the primary selection. Keyboard shortcuts include Ctrl/Cmd+C/X/V/D, Delete/Backspace, Escape, and Ctrl/Cmd+Z/Y.
-- Per-project title, description, language, brand color and font, logo and favicon selection, safe name/property metadata tags, custom CSS, and configurable mobile/tablet breakpoints. These settings are applied in the editor preview and standalone export.
+- Per-project title, description, language, brand color and font, logo and favicon selection, safe name/property metadata tags, custom CSS, configurable mobile/tablet breakpoints, public HTTP(S) site origin, social-sharing image, and validated schema.org JSON-LD. These settings are applied in the editor preview and standalone export.
 - A project-scoped design system with editable color palettes, shared color tokens, H1–H6/body typography presets, spacing and sizing tokens, and global button, link, card, input, and navigation styles. Element controls store CSS-variable references, so token edits synchronize across every page; the same validated variables/rules are included in preview and standalone CSS, with custom CSS applied last.
 - A local raster-image library for PNG, JPEG, WebP, and GIF, with folders, search, reusable images, display-name editing, physical filename renaming, move and delete controls. Renames re-upload the existing image through Payload and update saved page and website-setting references. Uploads are capped at 5 MB; SVG and other active/vector formats are rejected.
 - Autosave after a short idle period, manual save and Ctrl/Cmd+S, retry on network errors, revision checks, and best-effort IndexedDB recovery drafts.
+- An editor **Analyze** action that reads persisted project settings/pages/assets and generated-site source to report actionable SEO, performance, and accessibility findings. It checks generated metadata and routes, page titles/descriptions/headings/links, source and image byte counts, known generated CSS usage, image alt text, heading order, link names, and resolvable color contrast.
 - A standalone React + Vite + TypeScript generator. ZIP downloads, local-folder exports, and GitHub pushes are validated and production-built in an isolated temporary directory. The generated site does not require the builder or CMS at runtime.
 - Browser folder export through the File System Access API where available. It asks for a parent folder, validates output paths, and creates a new non-overwriting project directory; use ZIP export in browsers that do not support the picker.
 - Local GitHub connection, repository listing/creation, and source push. GitHub tokens are encrypted on the local server and are not returned to the browser. New repositories default to private in the app; the owner can choose public visibility.
@@ -24,6 +25,7 @@ This repository is a working MVP, not a claim that every item in the original pr
 - Typography supports the built-in Inter, system-ui, Georgia, and Arial stacks; Google Fonts loading and custom font uploads are not part of this phase. The eight foundational color tokens remain required, and a token used by saved content or global styles cannot be deleted.
 - Asset renames replace the upload through Payload and update saved references across project pages and settings; SVG uploads remain disabled for safety.
 - Custom CSS is checked for known executable and import patterns, but custom CSS is still author-supplied styling, not a sandbox; review it before publishing. Custom metadata accepts safe `name` and `property` tags rather than arbitrary HTML or scripts.
+- The Analyze report is static: it measures generated source bytes and decoded image-file bytes, not a browser session. It does not run Lighthouse, report Core Web Vitals, measure compressed transfer or production bundle sizes, validate crawler rendering/indexing, or query search engines. Per-page title/description/canonical/social tags update after the generated React app hydrates; use prerendering/server rendering when no-JavaScript crawler previews are required. Contrast checks are limited to saved styles/design tokens and are skipped when project custom CSS could override them.
 - Direct local-folder export depends on browser File System Access API support and user permission; the validated ZIP export is the portable fallback.
 - The local database and uploaded media are stored separately. Back up both the database data and `apps/cms/.webcraft/media`. On startup/build, existing files in the former public media folder are moved into private storage.
 - WebCraft is designed for a single-owner local installation, not an internet-facing multi-tenant service. Keep the CMS and PostgreSQL on loopback unless you add and review an appropriate deployment security model.
@@ -51,7 +53,7 @@ Open the builder at <http://127.0.0.1:5173>. On first launch, create the single 
 
 ```sh
 pnpm typecheck
-pnpm test                         # core schema and source-generator tests
+pnpm test                         # core, analyzer, access-control, and builder unit tests
 pnpm test:integration             # install and production-build a generated sample site
 pnpm build                        # core, CMS, and builder production builds
 pnpm security:audit               # production dependency advisory scan

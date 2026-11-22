@@ -48,13 +48,39 @@ export function generateSource(project: ExportProject, assets: ExportAsset[] = [
     ...settings,
     logoPath: rewriteMediaPath(settings.logoPath) ?? '',
     faviconPath: rewriteMediaPath(settings.faviconPath) ?? '',
+    socialImagePath: rewriteMediaPath(settings.socialImagePath) ?? '',
   }
   const data = { name: project.name, settings: exportSettings, pages: exportPages }
   const customMeta = settings.customMetaTags.map((tag) => `<meta ${tag.attribute}="${escapeHtml(tag.key)}" content="${escapeHtml(tag.content)}"/>`).join('\n')
+  const customMetaKeys = new Set(settings.customMetaTags.map((tag) => `${tag.attribute}:${tag.key.toLowerCase()}`))
+  const standardMeta = (attribute: 'name' | 'property', key: string, value: string) => customMetaKeys.has(`${attribute}:${key}`) ? '' : `<meta ${attribute}="${key}" content="${escapeHtml(value)}"/>`
+  const homeRoute = exportPages.find((page) => page.isHome)!
+  const homeTitle = homeRoute.seoTitle?.trim() || settings.title || homeRoute.title || project.name
+  const homeDescription = homeRoute.seoDescription?.trim() || settings.description
+  const routePath = (page: ExportPage) => page.slug === homeRoute.slug ? '/' : `/${page.slug}`
+  const canonicalHome = settings.siteUrl ? new URL(routePath(homeRoute), settings.siteUrl).toString() : ''
+  const socialImageUrl = canonicalHome && exportSettings.socialImagePath ? new URL(exportSettings.socialImagePath, settings.siteUrl).toString() : ''
+  const jsonLd = safeJsonLd(settings.structuredData)
+  const sitemap = settings.siteUrl ? textFile(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${exportPages.map((page) => `  <url><loc>${escapeXml(new URL(routePath(page), settings.siteUrl).toString())}</loc></url>`).join('\n')}\n</urlset>\n`) : undefined
+  const robots = textFile(`User-agent: *\nAllow: /\n${settings.siteUrl ? `Sitemap: ${new URL('/sitemap.xml', settings.siteUrl).toString()}\n` : ''}`)
   const favicon = exportSettings.faviconPath ? `<link rel="icon" href="${escapeHtml(exportSettings.faviconPath)}"/>` : ''
+  const canonicalTag = canonicalHome ? `<link rel="canonical" href="${escapeHtml(canonicalHome)}"/>` : ''
+  const generatedMeta = [
+    standardMeta('property', 'og:type', 'website'),
+    standardMeta('property', 'og:title', homeTitle),
+    standardMeta('property', 'og:description', homeDescription),
+    canonicalHome ? standardMeta('property', 'og:url', canonicalHome) : '',
+    socialImageUrl ? standardMeta('property', 'og:image', socialImageUrl) : '',
+    standardMeta('name', 'twitter:card', socialImageUrl ? 'summary_large_image' : 'summary'),
+    standardMeta('name', 'twitter:title', homeTitle),
+    standardMeta('name', 'twitter:description', homeDescription),
+    socialImageUrl ? standardMeta('name', 'twitter:image', socialImageUrl) : '',
+  ].filter(Boolean).join('\n')
   const files: Record<string, GeneratedFile> = {
     'package.json': textFile(JSON.stringify({ name: safeSlug(project.name), private: true, version: '1.0.0', type: 'module', scripts: { dev: 'vite', build: 'tsc --noEmit && vite build', preview: 'vite preview' }, dependencies: { react: '19.3.1', 'react-dom': '19.3.1', 'react-router-dom': '7.18.6' }, devDependencies: { '@vitejs/plugin-react': '6.3.0', vite: '8.3.8', typescript: '5.9.3', '@types/react': '19.2.14', '@types/react-dom': '19.2.3' } }, null, 2)),
-    'index.html': textFile(`<!doctype html>\n<html lang="${escapeHtml(settings.language)}"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="description" content="${escapeHtml(settings.description)}"/>${favicon}${customMeta ? `\n${customMeta}` : ''}<title>${escapeHtml(settings.title || project.name)}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n`),
+    'index.html': textFile(`<!doctype html>\n<html lang="${escapeHtml(settings.language)}"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>${standardMeta('name', 'description', homeDescription)}${favicon}${canonicalTag}${generatedMeta ? `\n${generatedMeta}` : ''}${customMeta ? `\n${customMeta}` : ''}${jsonLd ? `\n<script type="application/ld+json">${jsonLd}</script>` : ''}<title>${escapeHtml(homeTitle)}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n`),
+    'robots.txt': robots,
+    ...(sitemap ? { 'sitemap.xml': sitemap } : {}),
     'tsconfig.json': textFile(JSON.stringify({ compilerOptions: { target: 'ES2022', useDefineForClassFields: true, lib: ['ES2022', 'DOM', 'DOM.Iterable'], module: 'ESNext', skipLibCheck: true, moduleResolution: 'Bundler', resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: 'react-jsx', strict: true }, include: ['src', 'vite.config.ts'] }, null, 2)),
     'vite.config.ts': textFile(`import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nexport default defineConfig({ plugins: [react()] })\n`),
     'src/main.tsx': textFile(`import React from 'react'\nimport { createRoot } from 'react-dom/client'\nimport { BrowserRouter } from 'react-router-dom'\nimport App from './App'\nimport './styles.css'\n\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>)\n`),
@@ -70,6 +96,11 @@ export function generateSource(project: ExportProject, assets: ExportAsset[] = [
 }
 function safeMarkdown(value: string) { return value.replace(/[\r\n]/g, ' ').replace(/[`#]/g, '') }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)) }
+function escapeXml(value: string) { return value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]!)) }
+function safeJsonLd(value: string) {
+  if (!value.trim()) return ''
+  return JSON.stringify(JSON.parse(value)).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+}
 function rendererFile() { return `import React from 'react'
 type BaseStyle = React.CSSProperties & { gridColumns?: number }
 type NodeStyle = BaseStyle & { responsive?: { tablet?: BaseStyle; mobile?: BaseStyle } }
@@ -83,8 +114,17 @@ export function SiteRenderer({nodes,settings}:{nodes:Node[];settings?:Settings})
 function NodeView({node}:{node:Node}){const tag=node.type==='heading'?('h'+Math.max(1,Math.min(6,node.props?.level??2))):tags[node.type]??'div';const Tag=tag as keyof React.JSX.IntrinsicElements;const style={...node.style} as React.CSSProperties;delete (style as any).responsive;delete (style as any).gridColumns;if(node.style?.gridColumns)style.gridTemplateColumns='repeat('+node.style.gridColumns+',minmax(0,1fr))';if(node.type==='grid'||node.type==='columns')style.display=node.style?.display??'grid';if(node.type==='flex')style.display=node.style?.display??'flex';const children=(node.children??[]).map(child=><NodeView key={child.id} node={child}/>);const text=node.props?.text??'';const common={className:'wc-node wc-'+node.type+(node.type==='heading'?' wc-heading-level-'+Math.max(1,Math.min(6,node.props?.level??2)):''),style,'data-node-id':node.id};if(node.type==='image')return <img {...common} src={safeUrl(node.props?.src)} alt={node.props?.alt??''} loading="lazy"/>;if(node.type==='video')return <video {...common} src={safeUrl(node.props?.src)} controls preload="metadata"/>;if(node.type==='divider')return <hr {...common}/>;if(node.type==='spacer')return <div {...common} aria-hidden="true" style={{...style,minHeight:style.minHeight??style.height??'2rem'}}/>;if(node.type==='icon')return <span {...common} role="img" aria-label="decorative icon">{text||'✦'}</span>;if(node.type==='contact-form'||node.type==='newsletter')return <section {...common}><h2>{text}</h2><form onSubmit={e=>e.preventDefault()}><label>Email address <input type="email" placeholder="you@example.com" required/></label><button type="submit">{node.type==='newsletter'?'Subscribe':'Send message'}</button></form>{children}</section>;if(node.type==='button'||node.type==='link')return <a {...common} href={safeUrl(node.props?.href)}>{text}{children}</a>;return <Tag {...common}>{text}{children}</Tag>}
 ` }
 function appFile() { return `import React from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import site from './site.json'
 import { SiteRenderer } from './components/SiteRenderer'
-export default function App(){const home=site.pages.find(p=>p.isHome)??site.pages[0];return <Routes>{site.pages.map(page=><Route key={page.slug} path={page.slug===home.slug?'/':'/'+page.slug} element={<main><SiteRenderer nodes={page.nodes} settings={site.settings}/></main>}/>)}<Route path="*" element={<Navigate to="/" replace/>}/></Routes>}
+type PageMetadata = (typeof site.pages)[number] & { seoTitle?: string; seoDescription?: string }
+const pages = site.pages as PageMetadata[]
+function setMeta(attribute:'name'|'property',key:string,value:string){if((site.settings.customMetaTags??[]).some(tag=>tag.attribute===attribute&&tag.key.toLowerCase()===key))return;let meta=document.head.querySelector<HTMLMetaElement>('meta['+attribute+'="'+key+'"]');if(!value){meta?.remove();return}if(!meta){meta=document.createElement('meta');meta.setAttribute(attribute,key);document.head.append(meta)}meta.content=value}
+function setCanonical(value:string){let link=document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');if(!value){link?.remove();return}if(!link){link=document.createElement('link');link.rel='canonical';document.head.append(link)}link.href=value}
+function HeadMetadata(){const pathname=useLocation().pathname;const normalizedPathname=pathname.length>1?pathname.replace(/\\/+$/,''):pathname;const home=pages.find(p=>p.isHome)??pages[0];const page=pages.find(p=>(p.slug===home.slug?'/':'/'+p.slug)===normalizedPathname)??home;React.useEffect(()=>{const title=page.seoTitle?.trim()||(page.isHome?site.settings.title:page.title)||site.name;const description=page.seoDescription?.trim()||site.settings.description||'';const canonical=site.settings.siteUrl?new URL(page.slug===home.slug?'/':'/'+page.slug,site.settings.siteUrl).toString():'';const image=site.settings.socialImagePath&&site.settings.siteUrl?new URL(site.settings.socialImagePath,site.settings.siteUrl).toString():'';document.title=title;setCanonical(canonical);setMeta('name','description',description);setMeta('property','og:title',title);setMeta('property','og:description',description);setMeta('property','og:url',canonical);setMeta('property','og:image',image);setMeta('name','twitter:card',image?'summary_large_image':'summary');setMeta('name','twitter:title',title);setMeta('name','twitter:description',description);setMeta('name','twitter:image',image)},[pathname,page.slug]);return null}
+export default function App(){const home=pages.find(p=>p.isHome)??pages[0];return <><HeadMetadata/><Routes>{pages.map(page=><Route key={page.slug} path={page.slug===home.slug?'/':'/'+page.slug} element={<main><SiteRenderer nodes={page.nodes} settings={site.settings}/></main>}/>)}<Route path="*" element={<Navigate to="/" replace/>}/></Routes></>}
 ` }
+
+// Route-specific metadata is updated after the generated React app hydrates.
+// Source analysis reports static file measurements, not browser performance scores.
+// Configure the verified public origin before generating canonical URLs and sitemaps.

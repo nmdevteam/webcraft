@@ -42,6 +42,7 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
     <span className="eyebrow">WEBSITE SETTINGS</span><h2>Make it yours</h2><p>These settings are saved with this project and applied to its preview and export.</p>
     <label className="field-label">Website title<Input value={settings.title || projectName} maxLength={120} onChange={(e)=>patch({ title: e.target.value })}/></label>
     <label className="field-label">Meta description<textarea className="input textarea" value={settings.description} maxLength={300} onChange={(e)=>patch({ description: e.target.value })}/></label>
+    <label className="field-label">Public site origin<Input type="url" value={settings.siteUrl} maxLength={300} placeholder="https://example.com" onChange={(e)=>patch({ siteUrl: e.target.value.trim() })}/><small className="settings-help">Used for canonical URLs and absolute sitemap entries. Leave blank until you know the public domain.</small></label>
     <div className="settings-form-grid">
       <label className="field-label">Language tag<Input value={settings.language} maxLength={12} placeholder="en or en-US" onChange={(e)=>patch({ language: e.target.value })}/></label>
       <label className="field-label">Brand color<div className="brand-color-control"><Input value={settings.primaryColor} maxLength={80} placeholder="#5b5ce2 or rgb()/hsl()" onChange={(e)=>changePrimaryColor(e.target.value)}/><input className="input color-input" type="color" aria-label="Pick brand color in HEX" value={/^#[0-9a-f]{6}$/i.test(settings.primaryColor) ? settings.primaryColor : '#5b5ce2'} onChange={(e)=>changePrimaryColor(e.target.value)}/></div></label>
@@ -50,6 +51,7 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
     <div className="settings-form-grid">
       <label className="field-label">Website logo<select className="input" value={settings.logoPath} onChange={(e)=>patch({ logoPath: e.target.value })}><option value="">No logo</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.alt || asset.filename}</option>)}</select></label>
       <label className="field-label">Favicon<select className="input" value={settings.faviconPath} onChange={(e)=>patch({ faviconPath: e.target.value })}><option value="">Browser default</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.alt || asset.filename}</option>)}</select></label>
+      <label className="field-label">Social sharing image<select className="input" value={settings.socialImagePath} onChange={(e)=>patch({ socialImagePath: e.target.value })}><option value="">No social image</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.alt || asset.filename}</option>)}</select><small className="settings-help">Used for Open Graph and Twitter previews when a public site origin is configured.</small></label>
     </div>
     {assets.length === 0 && <small className="settings-help">Upload an image in the Assets panel first to choose a logo or favicon.</small>}
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Responsive breakpoints</b><small>Widths used by responsive styles and preview device modes.</small></div></div>
@@ -70,6 +72,9 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
         <label className="field-label meta-content">Content<Input value={tag.content} maxLength={300} placeholder="Metadata value" onChange={(e)=>updateMeta(index,{ content: e.target.value })}/></label>
         <button type="button" className="icon-button meta-remove" aria-label={`Remove meta tag ${index+1}`} onClick={()=>patch({ customMetaTags: settings.customMetaTags.filter((_,i)=>i!==index) })}><Trash2 size={15}/></button>
       </div>)}
+    </section>
+    <section className="project-settings-section"><div className="settings-subhead"><div><b>Structured data (JSON-LD)</b><small>Optional single schema.org object. It is JSON-validated and safely escaped in the generated HTML.</small></div></div>
+      <label className="field-label">Schema JSON<textarea className="input textarea code-textarea" value={settings.structuredData} maxLength={10000} spellCheck={false} placeholder={'{\n  "@context": "https://schema.org",\n  "@type": "Organization",\n  "name": "Example"\n}'} onChange={(e)=>patch({ structuredData: e.target.value })}/></label><small className="settings-help">{settings.structuredData.length.toLocaleString()} / 10,000 characters</small>
     </section>
     <div className="modal-actions"><Button type="button" onClick={onClose}>Cancel</Button><Button type="button" onClick={onOpenHistory}><History size={15}/>Version history</Button><Button variant="primary" type="submit" busy={saving}><Save size={15}/>Save settings</Button></div>
   </form></div>

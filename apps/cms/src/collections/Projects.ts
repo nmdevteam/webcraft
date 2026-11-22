@@ -24,7 +24,7 @@ export const Projects: CollectionConfig = {
     { name: 'name', type: 'text', required: true, maxLength: 120, index: true },
     { name: 'category', type: 'select', required: true, options: TEMPLATE_CATEGORIES.map((value) => ({ label: value, value })) },
     { name: 'templateId', type: 'text', required: true, maxLength: 80 },
-    { name: 'settings', type: 'json', required: true, defaultValue: { language: 'en', title: 'My website', description: '', primaryColor: '#5b5ce2', fontFamily: 'Inter', logoPath: '', faviconPath: '', customCss: '', customMetaTags: [], breakpoints: { mobile: 600, tablet: 900 } } },
+    { name: 'settings', type: 'json', required: true, defaultValue: { language: 'en', title: 'My website', description: '', siteUrl: '', primaryColor: '#5b5ce2', fontFamily: 'Inter', logoPath: '', faviconPath: '', socialImagePath: '', customCss: '', customMetaTags: [], structuredData: '', breakpoints: { mobile: 600, tablet: 900 } } },
     { name: 'owner', type: 'relationship', relationTo: 'users', required: true, index: true, admin: { readOnly: true } },
   ],
   timestamps: true,
