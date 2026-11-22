@@ -1,11 +1,17 @@
 import { z } from 'zod'
 import { ColorValueSchema, createDefaultDesignSystem, DesignSystemSchema } from './design-system'
+import { AnimationSchema } from './animation'
+import { FormConfigSchema } from './forms'
+import { PwaSettingsSchema } from './pwa'
 export type { DesignSystem, DesignTokenGroup, TypographyPresetName } from './design-system'
+export type { AnimationConfig } from './animation'
+export type { FormConfig, FormField, FormFieldType } from './forms'
+export type { PwaSettings } from './pwa'
 
 export const COMPONENT_TYPES = [
   'section', 'container', 'heading', 'paragraph', 'text', 'button', 'link', 'image', 'video', 'icon', 'divider', 'spacer',
   'grid', 'flex', 'columns', 'card', 'navbar', 'footer', 'hero', 'features', 'testimonials', 'pricing', 'faq', 'team',
-  'statistics', 'gallery', 'contact-form', 'newsletter', 'cta',
+  'statistics', 'gallery', 'contact-form', 'newsletter', 'form', 'cta',
 ] as const
 export type ComponentType = (typeof COMPONENT_TYPES)[number]
 
@@ -48,13 +54,14 @@ const safeHref = z.string().max(500).refine((value) => {
 const safeAsset = z.string().max(1000).refine((value) => !/^(javascript|vbscript|data|file):/i.test(value.trim()), 'Unsafe asset URL')
 const propsSchema = z.object({
   text: z.string().max(2000).optional(), href: safeHref.optional(), src: safeAsset.optional(), alt: z.string().max(500).optional(),
-  level: z.number().int().min(1).max(6).optional(), placeholder: z.string().max(300).optional(), label: z.string().max(200).optional(),
+  level: z.number().int().min(1).max(6).optional(), placeholder: z.string().max(300).optional(), label: z.string().max(200).optional(), formConfig: FormConfigSchema.optional(),
   columns: z.number().int().min(1).max(12).optional(),
 }).strict()
 
 export interface BuilderNode {
   id: string
   type: ComponentType
+  animation?: z.infer<typeof AnimationSchema>
   props: z.infer<typeof propsSchema>
   style: NodeStyle
   children: BuilderNode[]
@@ -62,6 +69,7 @@ export interface BuilderNode {
 const recursiveNode: z.ZodType<BuilderNode> = z.lazy(() => z.object({
   id: z.string().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/),
   type: z.enum(COMPONENT_TYPES),
+  animation: AnimationSchema.optional(),
   props: propsSchema.default({}),
   style: StyleSchema.default({}),
   children: z.array(recursiveNode).max(100).default([]),
@@ -130,6 +138,7 @@ export const ProjectSettingsSchema = z.object({
   customMetaTags: z.array(MetaTagSchema).max(16).default([]),
   structuredData,
   historyIntervalMinutes: z.number().int().min(0).max(1440).default(15),
+  pwa: PwaSettingsSchema.default(PwaSettingsSchema.parse({})),
   breakpoints: z.object({
     mobile: z.number().int().min(360).max(767).default(600),
     tablet: z.number().int().min(768).max(1280).default(900),
@@ -141,7 +150,7 @@ export const ProjectSettingsSchema = z.object({
   const designSystem = settings.designSystem ?? createDefaultDesignSystem(settings.primaryColor, settings.fontFamily)
   const activePalette = designSystem.palettes.find((palette) => palette.id === designSystem.activePaletteId)!
   const primaryColor = activePalette.tokens.find((token) => token.id === 'primary')!.value
-  return { ...settings, primaryColor, fontFamily: designSystem.typography.bodyFontFamily, designSystem }
+  return { ...settings, primaryColor, fontFamily: designSystem.typography.bodyFontFamily, designSystem, pwa: { ...settings.pwa, name: settings.pwa.name.trim() || settings.title.trim() || 'My website', shortName: settings.pwa.shortName.trim() || (settings.title.trim() || 'My website').slice(0, 32) } }
 })
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
 

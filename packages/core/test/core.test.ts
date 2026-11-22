@@ -4,6 +4,9 @@ import { templateById } from '../src/templates'
 import { generateSource } from '../src/exporter'
 import { createDefaultDesignSystem, DesignSystemSchema, designSystemCss, safeDesignSystemCss } from '../src/design-system'
 import { ComponentPackageSchema, MarketplacePackageSchema, TemplatePackageSchema, missingDesignTokens, packageCompatibilityError, packageForJsonExport } from '../src/marketplace'
+import { FormConfigSchema, createDefaultFormConfig } from '../src/forms'
+import { AnimationSchema, animationCss } from '../src/animation'
+import { createPwaManifest, getPwaReadiness, generatePwaServiceWorker } from '../src/pwa'
 
 const home = () => ({ title: 'Home', slug: 'home', isHome: true, nodes: templateById('business').nodes })
 
@@ -162,7 +165,7 @@ describe('project design system', () => {
     expect(exportedCss).toContain('--wc-color-primary:#aa2244')
     expect(exportedCss).toContain('--wc-spacing-md:1.25rem')
     expect(exportedCss.lastIndexOf(customCss)).toBeGreaterThan(exportedCss.indexOf('.wc-site{min-height:100%'))
-    expect(files['src/components/SiteRenderer.tsx']!.content).toContain('className="wc-site"')
+    expect(files['src/components/SiteRenderer.tsx']!.content).toContain("className={'wc-site'")
     expect(files['src/components/SiteRenderer.tsx']!.content).toContain('wc-heading-level-')
     expect(JSON.parse(files['src/site.json']!.content).pages[0].nodes[0].style.color).toBe('var(--wc-color-primary)')
   })
@@ -211,6 +214,87 @@ describe('standalone source generator', () => {
   it('rejects unsafe asset names and duplicate page slugs', () => {
     expect(() => generateSource({ name: 'Test', settings: {}, pages: [home()] }, [{ filename: '../escape.png', contentBase64: 'aGVsbG8=' }])).toThrow(/filename/)
     expect(() => generateSource({ name: 'Test', settings: {}, pages: [home(), { ...home(), title: 'Also home' }] })).toThrow(/Duplicate page slug/)
+  })
+})
+
+describe('Phase 6 forms, animations, and PWAs', () => {
+  it('validates form modes and rejects unsafe submission endpoints and duplicate names', () => {
+    const defaults = createDefaultFormConfig()
+    expect(FormConfigSchema.parse(defaults).submissionMode).toBe('frontend-only')
+    expect(FormConfigSchema.parse({ ...defaults, submissionMode: 'external', endpointUrl: '/api/contact' }).submissionMode).toBe('external')
+    for (const endpointUrl of ['http://example.com/submit', '//evil.example/submit', 'https://user:pass@example.com/submit', 'https://example.com/submit?next=x', 'https://example.com/submit#form', '/api/contact?to=elsewhere']) {
+      expect(() => FormConfigSchema.parse({ ...defaults, submissionMode: 'external', endpointUrl })).toThrow()
+    }
+    const duplicate = structuredClone(defaults)
+    duplicate.fields[1]!.name = duplicate.fields[0]!.name
+    expect(() => FormConfigSchema.parse(duplicate)).toThrow(/unique/)
+    expect(() => FormConfigSchema.parse({ ...defaults, submissionMode: 'external' })).toThrow(/endpoint/)
+  })
+
+  it('emits actual exported form fields, endpoint requests without credentials, and honest frontend-only status', () => {
+    const config = FormConfigSchema.parse({ ...createDefaultFormConfig('Contact'), submissionMode: 'external', endpointUrl: 'https://forms.example/submit' })
+    const nodes = validateTree([{ id: 'contact', type: 'form', props: { text: 'Contact', formConfig: config }, style: {}, children: [] }])
+    const files = generateSource({ name: 'Forms', settings: {}, pages: [{ title: 'Home', slug: 'home', isHome: true, nodes }] })
+    const runtime = files['src/components/FormRuntime.tsx']!.content
+    expect(runtime).toContain("method:'POST'")
+    expect(runtime).toContain("credentials:'omit'")
+    expect(runtime).toContain("mode:'cors'")
+    expect(runtime).toContain('No response was sent. Configure an HTTPS or same-origin endpoint')
+    expect(runtime).not.toContain('credentials: "include"')
+    expect(files['src/components/SiteRenderer.tsx']!.content).toContain('<GeneratedForm')
+    expect(JSON.parse(files['src/site.json']!.content).pages[0].nodes[0].props.formConfig.endpointUrl).toBe('https://forms.example/submit')
+  })
+
+  it('generates scoped entrance, hover, scroll and real link-exit animation hooks with reduced-motion rules', () => {
+    const nodes = validateTree([
+      { id: 'entrance', type: 'heading', props: { text: 'Hello' }, style: {}, animation: { enabled: true, trigger: 'entrance', effect: 'fade', durationMs: 400 }, children: [] },
+      { id: 'scroll', type: 'paragraph', props: { text: 'Scroll' }, style: {}, animation: { enabled: true, trigger: 'scroll', effect: 'slide', direction: 'up', durationMs: 300, disabledOn: ['mobile'] }, children: [] },
+      { id: 'exit', type: 'link', props: { text: 'Go', href: '/about' }, style: {}, animation: { enabled: true, trigger: 'exit', effect: 'scale', durationMs: 250, delayMs: 40 }, children: [] },
+    ])
+    const css = animationCss(nodes, { tablet: 900, mobile: 600 }, 'home')
+    expect(css).toContain('.wc-site[data-page-slug="home"] [data-node-id="entrance"][data-wc-motion="entrance"]')
+    expect(css).toContain('[data-wc-motion="scroll"].wc-motion-visible')
+    expect(css).toContain('[data-wc-motion="exit"].wc-motion-exiting')
+    expect(css).toContain('prefers-reduced-motion:reduce')
+    expect(css).toContain('@media(max-width:600px)')
+    const files = generateSource({ name: 'Motion', settings: {}, pages: [{ title: 'Home', slug: 'home', isHome: true, nodes }] })
+    expect(files['src/components/MotionRuntime.tsx']!.content).toContain("window.matchMedia('(prefers-reduced-motion: reduce)')")
+    expect(files['src/components/MotionRuntime.tsx']!.content).toContain("window.location.assign(destination.href)")
+    expect(files['src/styles.css']!.content).toContain('prefers-reduced-motion:reduce')
+    expect(AnimationSchema.parse({ enabled: true, disabledOn: ['tablet', 'mobile'] }).disabledOn).toEqual(['tablet', 'mobile'])
+    expect(() => AnimationSchema.parse({ enabled: true, durationMs: 5001 })).toThrow()
+  })
+
+  it('only emits PWA files and registration when enabled, with bounded same-origin cache behavior', () => {
+    const disabled = generateSource({ name: 'No PWA', settings: {}, pages: [home()] })
+    expect(disabled['public/sw.js']).toBeUndefined()
+    expect(disabled['public/manifest.webmanifest']).toBeUndefined()
+    expect(disabled['src/main.tsx']!.content).not.toContain("navigator.serviceWorker.register")
+
+    const pwaSettings = ProjectSettingsSchema.parse({ title: 'Trail Guide', pwa: { enabled: true, name: 'Trail Guide', shortName: 'Trail', icon192Path: '/media/icon.png', icon512Path: '/media/icon-large.webp', cacheStrategy: 'cache-first', offlineFallback: true } })
+    const manifest = createPwaManifest(pwaSettings.pwa)
+    expect(manifest.icons).toEqual([{ src: '/assets/icon.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/assets/icon-large.webp', sizes: '512x512', type: 'image/webp', purpose: 'any' }])
+    expect(getPwaReadiness(pwaSettings.pwa).some((message) => message.includes('dimensions are not inspected'))).toBe(true)
+    const files = generateSource({ name: 'Trail Guide', settings: pwaSettings, pages: [home()] }, [{ filename: 'icon.png', contentBase64: 'aGVsbG8=' }, { filename: 'icon-large.webp', contentBase64: 'aGVsbG8=' }])
+    const exportedManifest = JSON.parse(files['public/manifest.webmanifest']!.content)
+    expect(exportedManifest.name).toBe('Trail Guide')
+    expect(exportedManifest.icons[0].src).toBe('/assets/icon.png')
+    expect(files['index.html']!.content).toContain('rel="manifest"')
+    expect(files['index.html']!.content).toContain('name="theme-color"')
+    expect(files['src/main.tsx']!.content).toContain("navigator.serviceWorker.register('/sw.js')")
+    const worker = files['public/sw.js']!.content
+    expect(worker).toContain('MAX_ENTRIES = 150')
+    expect(worker).toContain('MAX_RESPONSE_BYTES = 8 * 1024 * 1024')
+    expect(worker).toContain('let cacheWriteQueue = Promise.resolve()')
+    expect(worker).toContain('cacheWriteQueue = write.catch(() => {})')
+    expect(worker).toContain('while (updatedKeys.length > MAX_ENTRIES)')
+    expect(worker).toContain('reader.read()')
+    expect(worker).toContain('size > MAX_RESPONSE_BYTES')
+    expect(worker).not.toContain('cacheableResponse.blob()')
+    expect(worker).toContain("new URL(request.url).origin !== self.location.origin")
+    expect(worker).toContain("request.destination")
+    expect(files['public/offline.html']!.content).toContain('You’re offline')
+    expect(generatePwaServiceWorker('network-first', false)).toContain('const OFFLINE_FALLBACK = false')
   })
 })
 

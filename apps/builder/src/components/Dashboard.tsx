@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, ArrowDownToLine, ArrowRight, Boxes, Check, ChevronDown, Clock3, Copy, FilePlus2, FolderKanban, Globe2, Layers3, LogOut, MoreHorizontal, Plus, Search, Settings2, Sparkles, Sun, Moon, Trash2, WandSparkles } from 'lucide-react'
 import { TEMPLATES, templateById } from '@webcraft/core/templates'
 import { api, apiAllDocs, jsonBody } from '../api'
@@ -12,6 +12,7 @@ type Page = { id: string; title: string; slug: string; isHome: boolean; nodes: a
 
 export function Dashboard() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user, clear } = useAuthStore()
   const [projects, setProjects] = useState<Project[]>([])
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({})
@@ -39,6 +40,14 @@ export function Dashboard() {
     finally { setLoading(false) }
   }
   useEffect(() => { void refresh() }, [])
+  useEffect(() => {
+    const requested = searchParams.get('template')
+    if (!requested) return
+    const found = TEMPLATES.find((item) => item.id === requested)
+    if (!found) return
+    setTemplateId(found.id); setProjectName(''); setDialog(true)
+    const next = new URLSearchParams(searchParams); next.delete('template'); setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('webcraft-theme', theme) }, [theme])
   const filtered = useMemo(() => projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase())), [projects, search])
   const totalPages = Object.values(pageCounts).reduce((sum, count) => sum + count, 0)

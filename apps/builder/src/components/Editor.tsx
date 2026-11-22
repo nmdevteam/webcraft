@@ -19,6 +19,9 @@ import { InstalledComponentsPanel } from './InstalledComponentsPanel'
 import { ClipboardCheck } from 'lucide-react'
 import type { AnalysisFinding, WebsiteAnalysisReport } from '@webcraft/core/analysis'
 import { AnalysisReportDialog } from './AnalysisReportDialog'
+import { NodeFeaturePanel } from './NodeFeaturePanel'
+import { createDefaultFormConfig, type FormConfig } from '@webcraft/core/forms'
+import type { AnimationConfig } from '@webcraft/core/animation'
 
 type Project = { id: string; name: string; category: string; templateId: string; settings: ProjectSettings; updatedAt: string }
 type Page = { id: string; title: string; slug: string; isHome: boolean; seoTitle?: string; seoDescription?: string; nodes: BuilderNode[]; revision: number; updatedAt: string; undoHistory?: PageUndoHistory }
@@ -26,11 +29,11 @@ type AssetFolder = { id: string; name: string; project: string }
 type Asset = { id: string; filename: string; name?: string; url?: string; alt?: string; filesize?: number; mimeType?: string; folder?: string | AssetFolder | null }
 type Tab = 'elements' | 'pages' | 'layers' | 'assets' | 'components'
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed'
-const labels: Record<ComponentType, string> = { section:'Section',container:'Container',heading:'Heading',paragraph:'Paragraph',text:'Text',button:'Button',link:'Link',image:'Image',video:'Video',icon:'Icon',divider:'Divider',spacer:'Spacer',grid:'Grid',flex:'Flex row',columns:'Columns',card:'Card',navbar:'Navbar',footer:'Footer',hero:'Hero',features:'Features',testimonials:'Testimonials',pricing:'Pricing',faq:'FAQ',team:'Team',statistics:'Statistics',gallery:'Gallery','contact-form':'Contact form',newsletter:'Newsletter',cta:'Call to action' }
-const defaultText: Partial<Record<ComponentType,string>> = { section:'Section',container:'Container',heading:'A clear, memorable headline',paragraph:'Add a sentence that brings your idea to life.',text:'Edit this text',button:'Get started',link:'Learn more',icon:'✦',grid:'Grid',flex:'Flex row',columns:'Columns',card:'Card title',navbar:'Navigation',footer:'Footer',hero:'Make your next idea real.',features:'Features',testimonials:'What people say',pricing:'Simple, transparent pricing',faq:'Frequently asked questions',team:'Meet the team',statistics:'Our impact',gallery:'Gallery','contact-form':'Get in touch',newsletter:'Stay in the loop',cta:'Ready to get started?' }
+const labels: Record<ComponentType, string> = { section:'Section',container:'Container',heading:'Heading',paragraph:'Paragraph',text:'Text',button:'Button',link:'Link',image:'Image',video:'Video',icon:'Icon',divider:'Divider',spacer:'Spacer',grid:'Grid',flex:'Flex row',columns:'Columns',card:'Card',navbar:'Navbar',footer:'Footer',hero:'Hero',features:'Features',testimonials:'Testimonials',pricing:'Pricing',faq:'FAQ',team:'Team',statistics:'Statistics',gallery:'Gallery','contact-form':'Contact form',newsletter:'Newsletter',form:'Form',cta:'Call to action' }
+const defaultText: Partial<Record<ComponentType,string>> = { section:'Section',container:'Container',heading:'A clear, memorable headline',paragraph:'Add a sentence that brings your idea to life.',text:'Edit this text',button:'Get started',link:'Learn more',icon:'✦',grid:'Grid',flex:'Flex row',columns:'Columns',card:'Card title',navbar:'Navigation',footer:'Footer',hero:'Make your next idea real.',features:'Features',testimonials:'What people say',pricing:'Simple, transparent pricing',faq:'Frequently asked questions',team:'Meet the team',statistics:'Our impact',gallery:'Gallery','contact-form':'Get in touch',newsletter:'Stay in the loop',form:'Contact us',cta:'Ready to get started?' }
 const tabItems: { id: Tab; label: string; icon: typeof Layers3 }[] = [{id:'elements',label:'Elements',icon:Plus},{id:'pages',label:'Pages',icon:FilePlus2},{id:'layers',label:'Layers',icon:Layers3},{id:'assets',label:'Assets',icon:ImagePlus},{id:'components',label:'Installed',icon:Package}]
 const viewportWidths = { desktop: 1200, tablet: 800, mobile: 390 } as const
-function makeNode(type: ComponentType): BuilderNode { return { id: crypto.randomUUID().replace(/-/g,''), type, props: { text: defaultText[type] ?? labels[type] }, style: {}, children: [] } }
+function makeNode(type: ComponentType): BuilderNode { return { id: crypto.randomUUID().replace(/-/g,''), type, props: { text: defaultText[type] ?? labels[type], ...(type === 'form' ? { formConfig: createDefaultFormConfig() } : {}) }, style: {}, children: [] } }
 function findNode(nodes: BuilderNode[], id: string | null): BuilderNode | null { if (!id) return null; for (const node of nodes) { if (node.id === id) return node; const child = findNode(node.children,id); if (child) return child } return null }
 function slugify(value: string) { return value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80) || 'page' }
 function getAssetFolderId(asset: Asset) { return typeof asset.folder === 'string' ? asset.folder : asset.folder?.id ?? '' }
@@ -106,7 +109,7 @@ export function Editor() {
       if (!loadedPages.length) throw new Error('This project has no pages. Create one from the Pages panel.')
       const requested = query.get('page')
       const page = loadedPages.find((candidate) => candidate.id === requested) ?? loadedPages.find((candidate) => candidate.isHome) ?? loadedPages[0]!
-      setActivePage(page); setQuery({ page: page.id }, { replace: true })
+      setActivePage(page); const nextQuery = new URLSearchParams(query); nextQuery.set('page', page.id); setQuery(nextQuery, { replace: true })
       let initial = page.nodes
       try {
         const draft = await getDraft(page.id)
@@ -236,8 +239,35 @@ export function Editor() {
   async function switchPage(page: Page) {
     if (page.id === activePage?.id) return
     if (saveStatus === 'unsaved' || saveStatus === 'failed') await flushPage()
-    setReady(false); setActivePage(page); setQuery({ page: page.id }, { replace: true }); store.getState().setNodes(page.nodes); store.getState().setHistory(page.undoHistory ?? { past: [], future: [] }); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
+    const nextQuery = new URLSearchParams(query); nextQuery.set('page', page.id)
+    setReady(false); setActivePage(page); setQuery(nextQuery, { replace: true }); store.getState().setNodes(page.nodes); store.getState().setHistory(page.undoHistory ?? { past: [], future: [] }); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
   }
+  useEffect(() => {
+    if (!ready || !activePage) return
+    const requestedPageId = query.get('page')
+    if (requestedPageId && requestedPageId !== activePage.id) {
+      const requestedPage = pages.find((page) => page.id === requestedPageId)
+      if (requestedPage) void switchPage(requestedPage)
+      return
+    }
+    const requestedNode = findNode(nodes, query.get('node'))
+    if (requestedNode && selectedId !== requestedNode.id) store.getState().select(requestedNode.id)
+    const requestedTab = query.get('tab')
+    if (requestedTab === 'assets' || requestedTab === 'elements' || requestedTab === 'pages' || requestedTab === 'layers' || requestedTab === 'components') setTab(requestedTab)
+    const requestedAssetSearch = query.get('assetSearch')
+    if (requestedAssetSearch !== null && requestedAssetSearch !== assetSearch) setAssetSearch(requestedAssetSearch)
+    if (query.get('settings') === '1' && !projectSettingsOpen) {
+      setProjectSettingsOpen(true)
+      void loadAssets()
+      const nextQuery = new URLSearchParams(query); nextQuery.delete('settings'); setQuery(nextQuery, { replace: true })
+    }
+    const requestedAdd = query.get('add')
+    if (requestedAdd && COMPONENT_TYPES.includes(requestedAdd as ComponentType)) {
+      const type = requestedAdd as ComponentType
+      store.getState().add(makeNode(type)); setTab('layers'); setNotice(`Added ${labels[type]} from global search.`)
+      const nextQuery = new URLSearchParams(query); nextQuery.delete('add'); setQuery(nextQuery, { replace: true })
+    }
+  }, [query, ready, activePage, pages, nodes, selectedId, assetSearch, projectSettingsOpen, projectId, store, setQuery])
   async function captureProjectSnapshot(reason: 'manual'|'before-delete'|'before-settings-change', label: string) {
     return api(`/webcraft/projects/${encodeURIComponent(projectId)}/history`, { method: 'POST', body: jsonBody({ reason, label }) })
   }
@@ -305,6 +335,8 @@ export function Editor() {
   }
 
   function addNode(type: ComponentType) { store.getState().add(makeNode(type)); setTab('layers') }
+  function updateFormConfig(config: FormConfig) { if (!selectedNode) return; store.getState().setNodes(transformProps(store.getState().nodes, selectedNode.id, { formConfig: config }), true) }
+  function updateAnimationConfig(config: AnimationConfig | undefined) { if (!selectedNode) return; store.getState().setNodes(transformAnimation(store.getState().nodes, selectedNode.id, config), true) }
   function onDrop(event: React.DragEvent) {
     event.preventDefault(); const value = event.dataTransfer.getData('text/webcraft')
     if (value.startsWith('component:')) addNode(value.slice(10) as ComponentType)
@@ -510,6 +542,7 @@ export function Editor() {
     {projectSettingsOpen && project && <ProjectSettingsModal projectName={project.name} settings={settings} assets={assets} pages={pages.map((page)=>page.id===activePage.id?nodes:page.nodes)} saving={settingsSaving} onChange={setSettings} onSubmit={(e)=>void saveProjectSettings(e)} onClose={()=>setProjectSettingsOpen(false)} onOpenHistory={()=>{setProjectSettingsOpen(false);void openHistory()}}/>}
     {historyOpen && project && <HistoryModal projectId={projectId} project={project} pages={pages.map((page)=>page.id===activePage.id?{...page,nodes}:page)} onClose={()=>setHistoryOpen(false)} onRestored={async()=>{await loadProject();setNotice('Project version restored.')}}/>}
     {analysisReport && <AnalysisReportDialog report={analysisReport} onClose={() => setAnalysisReport(null)} onOpenPage={(finding) => void openAnalysisFinding(finding)}/> }
+    {selectedNode && <NodeFeaturePanel node={selectedNode} onFormChange={updateFormConfig} onAnimationChange={updateAnimationConfig} onError={setError} onTitleChange={(text)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{text}),true)}/>}
     {selectedNode && <AdvancedStylePanel node={selectedNode} onUpdate={(mode,field,value)=>updateStyle(field,value,mode)}/>}
     {selectedIds.length > 0 && <SelectionActions count={selectedIds.length} onCopy={() => copySelection()} onDuplicate={() => duplicateSelection()} onDelete={() => deleteSelection()}/> }
     {pushOpen && <div className="modal-backdrop"><div className="modal-card"><div className="modal-head"><span className="modal-icon"><GitBranch size={18}/></span><button type="button" className="close-modal" onClick={()=>setPushOpen(false)}>×</button></div><span className="eyebrow">GITHUB PUSH</span><h2>Choose a repository</h2><p>WebCraft generates and validates a standalone Vite site before committing its source.</p>{repositories.length ? <label className="field-label">Repository<select className="input select-input" value={selectedRepo} onChange={(e)=>setSelectedRepo(e.target.value)}>{repositories.map((repo)=><option key={repo.fullName} value={repo.fullName}>{repo.fullName} · {repo.private?'Private':'Public'}</option>)}</select></label> : <div className="settings-empty">No repositories found. Create one in Settings first.</div>}<div className="modal-actions"><Button type="button" onClick={()=>setPushOpen(false)}>Cancel</Button><Button variant="primary" busy={pushBusy} disabled={!selectedRepo} onClick={()=>void pushToGitHub()}><GitBranch size={15}/>Validate & push</Button></div></div></div>}
@@ -519,3 +552,4 @@ export function Editor() {
 function StyleInput({ value, onSave, placeholder }: { value?: string; onSave: (value: string) => void; placeholder: string }) { return <Input key={`${value??''}-${placeholder}`} defaultValue={value??''} placeholder={placeholder} maxLength={120} onBlur={(e)=>onSave(e.currentTarget.value)}/> }
 function SparkleGlyph(){return <span className="sparkle-glyph">✦</span>}
 function transformProps(nodes:BuilderNode[], id:string, values:Record<string,unknown>):BuilderNode[]{return nodes.map(n=>n.id===id?{...n,props:{...n.props,...values}}:{...n,children:transformProps(n.children,id,values)})}
+function transformAnimation(nodes:BuilderNode[], id:string, animation:AnimationConfig|undefined):BuilderNode[]{return nodes.map(n=>n.id===id?{...n,animation}:{...n,children:transformAnimation(n.children,id,animation)})}

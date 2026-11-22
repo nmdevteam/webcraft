@@ -3,6 +3,7 @@ import { History, Plus, Save, Trash2 } from 'lucide-react'
 import type { BuilderNode, DesignSystem, ProjectSettings } from '@webcraft/core/schema'
 import { Button, Input } from './ui'
 import { DesignSystemManager } from './DesignSystemManager'
+import { getPwaReadiness } from '@webcraft/core/pwa'
 
 type Asset = { id: string; filename: string; name?: string; alt?: string }
 type Props = {
@@ -31,6 +32,7 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
     const activePalette = designSystem.palettes.find((palette) => palette.id === designSystem.activePaletteId)!
     patch({ designSystem, primaryColor: activePalette.tokens.find((token) => token.id === 'primary')!.value, fontFamily: designSystem.typography.bodyFontFamily })
   }
+  const changePwa = (values: Partial<ProjectSettings['pwa']>) => patch({ pwa: { ...settings.pwa, ...values } })
   const mediaPath = (asset: Asset) => `/media/${asset.filename}`
   const updateMeta = (index: number, values: Partial<ProjectSettings['customMetaTags'][number]>) => {
     const customMetaTags = [...settings.customMetaTags]
@@ -56,6 +58,19 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
     {assets.length === 0 && <small className="settings-help">Upload an image in the Assets panel first to choose a logo or favicon.</small>}
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Responsive breakpoints</b><small>Widths used by responsive styles and preview device modes.</small></div></div>
       <div className="settings-form-grid"><label className="field-label">Mobile max width (px)<Input type="number" min={360} max={767} value={settings.breakpoints.mobile} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, mobile: Number(e.target.value) } })}/></label><label className="field-label">Tablet max width (px)<Input type="number" min={768} max={1280} value={settings.breakpoints.tablet} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, tablet: Number(e.target.value) } })}/></label></div>
+    </section>
+    <section className="project-settings-section pwa-settings"><div className="settings-subhead"><div><b>Progressive web app</b><small>Generate an optional manifest, same-origin service worker and offline page in standalone exports.</small></div></div>
+      <label className="form-builder-required"><input type="checkbox" checked={settings.pwa.enabled} onChange={(e)=>changePwa({ enabled: e.target.checked })}/>Enable PWA files in exports</label>
+      {!settings.pwa.enabled && <small className="settings-help">Off by default. Existing export output is unchanged until enabled.</small>}
+      {settings.pwa.enabled && <>
+        <div className="settings-form-grid"><label className="field-label">App name<Input value={settings.pwa.name} maxLength={120} onChange={(e)=>changePwa({ name: e.target.value })}/></label><label className="field-label">Short name<Input value={settings.pwa.shortName} maxLength={32} onChange={(e)=>changePwa({ shortName: e.target.value })}/></label></div>
+        <div className="settings-form-grid"><label className="field-label">192×192 icon<select className="input" value={settings.pwa.icon192Path} onChange={(e)=>changePwa({ icon192Path: e.target.value })}><option value="">Choose an image</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.filename}</option>)}</select></label><label className="field-label">512×512 icon<select className="input" value={settings.pwa.icon512Path} onChange={(e)=>changePwa({ icon512Path: e.target.value })}><option value="">Choose an image</option>{assets.map((asset)=><option key={asset.id} value={mediaPath(asset)}>{asset.name || asset.filename}</option>)}</select></label></div>
+        <small className="settings-help">Select raster images with the stated dimensions. WebCraft does not inspect or resize their dimensions.</small>
+        <div className="settings-form-grid"><label className="field-label">Theme color<Input value={settings.pwa.themeColor} maxLength={80} placeholder="#5b5ce2" onChange={(e)=>changePwa({ themeColor: e.target.value })}/></label><label className="field-label">Background color<Input value={settings.pwa.backgroundColor} maxLength={80} placeholder="#ffffff" onChange={(e)=>changePwa({ backgroundColor: e.target.value })}/></label></div>
+        <div className="settings-form-grid"><label className="field-label">Display mode<select className="input" value={settings.pwa.display} onChange={(e)=>changePwa({ display: e.target.value as ProjectSettings['pwa']['display'] })}><option value="standalone">Standalone</option><option value="fullscreen">Fullscreen</option><option value="minimal-ui">Minimal UI</option><option value="browser">Browser</option></select></label><label className="field-label">Static asset cache strategy<select className="input" value={settings.pwa.cacheStrategy} onChange={(e)=>changePwa({ cacheStrategy: e.target.value as ProjectSettings['pwa']['cacheStrategy'] })}><option value="network-first">Network first</option><option value="cache-first">Cache first</option><option value="stale-while-revalidate">Stale while revalidate</option></select></label></div>
+        <label className="form-builder-required"><input type="checkbox" checked={settings.pwa.offlineFallback} onChange={(e)=>changePwa({ offlineFallback: e.target.checked })}/>Include a dedicated offline fallback page</label>
+        <ul className="pwa-readiness">{getPwaReadiness(settings.pwa).map((item,index)=><li key={index}>{item}</li>)}</ul>
+      </>}
     </section>
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Automatic version snapshots</b><small>After meaningful edits are saved, keep a project-wide recovery point at this interval.</small></div></div>
       <label className="field-label">Snapshot interval<select className="input" value={settings.historyIntervalMinutes} onChange={(e)=>patch({ historyIntervalMinutes: Number(e.target.value) })}><option value={0}>Off</option><option value={5}>Every 5 minutes</option><option value={15}>Every 15 minutes</option><option value={30}>Every 30 minutes</option><option value={60}>Every hour</option><option value={1440}>Every day</option></select></label>

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { api } from './api'
 import { AuthScreen } from './components/AuthScreen'
+import { GlobalSearch } from './components/GlobalSearch'
 import { useAuthStore } from './store/auth'
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })))
@@ -28,5 +29,6 @@ export default function App() {
       <Route path="/marketplace" element={<Marketplace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <GlobalSearch />
   </Suspense>
 }

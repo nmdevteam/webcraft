@@ -4,7 +4,7 @@ import { COMPONENT_MARKETPLACE_CATEGORIES, type MarketplacePackage } from '@webc
 import { TEMPLATE_CATEGORIES } from '@webcraft/core/templates'
 import { SiteRenderer } from '@webcraft/core/renderer'
 import { ProjectSettingsSchema, type BuilderNode, type ProjectSettings } from '@webcraft/core/schema'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api, apiAllDocs, jsonBody, queryString } from '../api'
 import { useAuthStore } from '../store/auth'
 import { Button, IconButton, Input, Status } from './ui'
@@ -24,6 +24,7 @@ function slug(value: string) { return value.toLowerCase().trim().replace(/[^a-z0
 
 export function Marketplace() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuthStore()
   const [records, setRecords] = useState<PackageRecord[]>([])
   const [page, setPage] = useState(1)
@@ -31,7 +32,7 @@ export function Marketplace() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('search') ?? '')
   const [type, setType] = useState('')
   const [category, setCategory] = useState('')
   const [favoriteOnly, setFavoriteOnly] = useState(false)
@@ -52,6 +53,11 @@ export function Marketplace() {
   const categories: string[] = type === 'component' ? [...COMPONENT_MARKETPLACE_CATEGORIES] : type === 'template' ? [...TEMPLATE_CATEGORIES] : [...new Set([...COMPONENT_MARKETPLACE_CATEGORIES, ...TEMPLATE_CATEGORIES])]
   const ownerId = String(user?.id ?? '')
   const owns = (record: PackageRecord) => Boolean(record.owner) && (typeof record.owner === 'string' ? record.owner === ownerId : String(record.owner?.id) === ownerId)
+
+  useEffect(() => {
+    const requested = new URLSearchParams(location.search).get('search')
+    if (requested !== null && requested !== q) setQ(requested)
+  }, [location.search, q])
 
   async function refresh() {
     setLoading(true); setError('')
