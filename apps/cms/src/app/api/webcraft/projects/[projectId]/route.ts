@@ -24,25 +24,39 @@ export async function DELETE(request: Request, context: { params: Promise<{ proj
   }
 
   try {
-    for (const collection of ['pages', 'assets', 'asset-folders'] as const) {
-      while (true) {
-        const batch = await payload.find({
-          collection,
-          where: { project: { equals: projectId } },
-          limit: 50,
-          depth: 0,
-          user,
-          overrideAccess: false,
-        })
-        if (batch.docs.length === 0) break
-        for (const doc of batch.docs) {
-          await payload.delete({ collection, id: doc.id, user, overrideAccess: false })
+    const transactionID = await payload.db?.beginTransaction?.()
+    if (transactionID === null || transactionID === undefined) {
+      return NextResponse.json({ error: 'Atomic project deletion is unavailable.' }, { status: 503 })
+    }
+    try {
+      await payload.findByID({ collection: 'projects', id: projectId, user, overrideAccess: false, req: { transactionID } })
+      for (const collection of ['pages', 'assets', 'asset-folders', 'project-versions'] as const) {
+        while (true) {
+          const batch = await payload.find({
+            collection,
+            where: { project: { equals: projectId } },
+            limit: 50,
+            depth: 0,
+            user,
+            overrideAccess: false,
+            req: { transactionID },
+          })
+          if (batch.docs.length === 0) break
+          for (const doc of batch.docs) {
+            // Version records are immutable to API users; permit deletion only through this
+            // owner-checked project cascade after the project itself was verified above.
+            await payload.delete({ collection, id: doc.id, user, overrideAccess: collection === 'project-versions', req: { transactionID } })
+          }
         }
       }
-    }
 
-    await payload.delete({ collection: 'projects', id: projectId, user, overrideAccess: false })
-    return NextResponse.json({ deleted: true })
+      await payload.delete({ collection: 'projects', id: projectId, user, overrideAccess: false, req: { transactionID } })
+      await payload.db.commitTransaction(transactionID)
+      return NextResponse.json({ deleted: true })
+    } catch (error) {
+      await payload.db.rollbackTransaction(transactionID).catch(() => undefined)
+      throw error
+    }
   } catch {
     return NextResponse.json({ error: 'Project deletion failed.' }, { status: 500 })
   }

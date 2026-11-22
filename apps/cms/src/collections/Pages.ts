@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { PageDataSchema } from '@webcraft/core/schema'
+import { PageDataSchema, PageUndoHistorySchema } from '@webcraft/core/schema'
 
 export const Pages: CollectionConfig = {
   slug: 'pages',
@@ -16,7 +16,7 @@ export const Pages: CollectionConfig = {
       const projectValue = data.project ?? originalDoc?.project
       const projectId = typeof projectValue === 'object' && projectValue !== null ? projectValue.id : projectValue
       if (!projectId) throw new Error('A page must belong to a project')
-      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user })
+      await req.payload.findByID({ collection: 'projects', id: projectId, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
       const originalProject = originalDoc?.project
       const originalProjectId = typeof originalProject === 'object' && originalProject !== null ? originalProject.id : originalProject
       if (operation === 'update' && String(projectId) !== String(originalProjectId)) throw new Error('Pages cannot be moved between projects.')
@@ -32,10 +32,11 @@ export const Pages: CollectionConfig = {
         nodes: data.nodes ?? originalDoc?.nodes ?? [],
       })
       Object.assign(data, page)
-      const duplicates = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { slug: { equals: page.slug } }] }, limit: 2, depth: 0, user: req.user })
+      data.undoHistory = PageUndoHistorySchema.parse(data.undoHistory ?? originalDoc?.undoHistory ?? {})
+      const duplicates = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { slug: { equals: page.slug } }] }, limit: 2, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
       if (duplicates.docs.some((item) => String(item.id) !== String(originalDoc?.id ?? ''))) throw new Error('A page with this URL slug already exists in the project.')
       if (page.isHome) {
-        const homepages = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { isHome: { equals: true } }] }, limit: 2, depth: 0, user: req.user })
+        const homepages = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { isHome: { equals: true } }] }, limit: 2, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
         if (homepages.docs.some((item) => String(item.id) !== String(originalDoc?.id ?? ''))) throw new Error('This project already has a homepage.')
       }
       if (operation === 'update' && data.revision !== undefined) {
@@ -53,6 +54,7 @@ export const Pages: CollectionConfig = {
     { name: 'seoTitle', type: 'text', maxLength: 120 },
     { name: 'seoDescription', type: 'textarea', maxLength: 300 },
     { name: 'nodes', type: 'json', required: true, defaultValue: [] },
+    { name: 'undoHistory', type: 'json', defaultValue: { past: [], future: [] }, admin: { hidden: true } },
     { name: 'revision', type: 'number', min: 0, defaultValue: 0, admin: { readOnly: true } },
     { name: 'project', type: 'relationship', relationTo: 'projects', required: true, index: true },
     { name: 'owner', type: 'relationship', relationTo: 'users', required: true, index: true, admin: { readOnly: true } },

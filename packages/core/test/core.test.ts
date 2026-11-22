@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PageDataSchema, ProjectSettingsSchema, responsiveStyleCss, styleDeclarations, validateTree } from '../src/schema'
+import { PageDataSchema, PageUndoHistorySchema, ProjectSettingsSchema, ProjectVersionSnapshotSchema, responsiveStyleCss, styleDeclarations, validateTree } from '../src/schema'
 import { templateById } from '../src/templates'
 import { generateSource } from '../src/exporter'
 import { createDefaultDesignSystem, DesignSystemSchema, designSystemCss, safeDesignSystemCss } from '../src/design-system'
@@ -45,6 +45,35 @@ describe('WebCraft canonical page model', () => {
     expect(css).toContain('@media(max-width:600px)')
     expect(css).toContain('[data-node-id="responsive"]{color:#112233}')
     expect(css).toContain('grid-template-columns:repeat(2, minmax(0, 1fr))')
+  })
+})
+
+describe('project version history validation', () => {
+  it('defaults automatic snapshots to 15 minutes and accepts a safe disabled setting', () => {
+    expect(ProjectSettingsSchema.parse({}).historyIntervalMinutes).toBe(15)
+    expect(ProjectSettingsSchema.parse({ historyIntervalMinutes: 0 }).historyIntervalMinutes).toBe(0)
+    expect(() => ProjectSettingsSchema.parse({ historyIntervalMinutes: 1.5 })).toThrow()
+    expect(() => ProjectSettingsSchema.parse({ historyIntervalMinutes: 1441 })).toThrow()
+  })
+
+  it('validates persistent undo/redo trees and applies bounded stack lengths', () => {
+    const history = PageUndoHistorySchema.parse({ past: [[]], future: [[]] })
+    expect(history.past).toEqual([[]])
+    expect(() => PageUndoHistorySchema.parse({ past: Array.from({ length: 41 }, () => []), future: [] })).toThrow()
+    expect(() => PageUndoHistorySchema.parse({ past: [[{ id: 'bad id', type: 'paragraph', props: {}, style: {}, children: [] }]], future: [] })).toThrow()
+    const largeTree = Array.from({ length: 10 }, (_, index) => ({ id: `large-${index}`, type: 'paragraph' as const, props: { text: 'x'.repeat(2000) }, style: {}, children: [] }))
+    expect(() => PageUndoHistorySchema.parse({ past: Array.from({ length: 40 }, () => largeTree), future: [] })).toThrow(/storage limit/)
+  })
+
+  it('validates recoverable project snapshots and rejects duplicate slugs and unsafe content', () => {
+    const snapshot = {
+      project: { name: 'Site', category: 'Business', templateId: 'business', settings: {} },
+      pages: [{ sourceId: 'page-1', title: 'Home', slug: 'home', isHome: true, nodes: [] }],
+    }
+    expect(ProjectVersionSnapshotSchema.parse(snapshot).pages[0]?.slug).toBe('home')
+    expect(() => ProjectVersionSnapshotSchema.parse({ ...snapshot, pages: [...snapshot.pages, { ...snapshot.pages[0], sourceId: 'page-2' }] })).toThrow(/unique/)
+    expect(() => ProjectVersionSnapshotSchema.parse({ ...snapshot, pages: [{ ...snapshot.pages[0], nodes: [{ id: 'script', type: 'link', props: { href: 'javascript:alert(1)' }, style: {}, children: [] }] }] })).toThrow()
+    expect(() => ProjectVersionSnapshotSchema.parse({ ...snapshot, pages: [...snapshot.pages, { sourceId: 'page-2', title: 'Other', slug: 'other', isHome: true, nodes: [] }] })).toThrow(/homepage/)
   })
 })
 

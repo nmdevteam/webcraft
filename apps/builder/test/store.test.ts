@@ -105,4 +105,31 @@ describe('builder multi-selection', () => {
     expect(useBuilderStore.getState().nodes).toEqual(before)
     expect(useBuilderStore.getState().past).toHaveLength(0)
   })
+
+  it('rehydrates validated undo/redo history so page edits survive a reload', () => {
+    const original = [node('before')]
+    useBuilderStore.getState().setNodes(original)
+    useBuilderStore.getState().add(node('after'))
+    const edited = useBuilderStore.getState().nodes
+    const persistedPast = useBuilderStore.getState().past
+
+    resetStore()
+    useBuilderStore.getState().setNodes(edited)
+    useBuilderStore.getState().setHistory({ past: persistedPast, future: [] })
+    useBuilderStore.getState().undo()
+    expect(useBuilderStore.getState().nodes).toEqual(original)
+
+    const persistedFuture = useBuilderStore.getState().future
+    resetStore()
+    useBuilderStore.getState().setNodes(original)
+    useBuilderStore.getState().setHistory({ past: [], future: persistedFuture })
+    useBuilderStore.getState().redo()
+    expect(useBuilderStore.getState().nodes).toEqual(edited)
+  })
+
+  it('drops malformed persisted history rather than applying an unsafe tree', () => {
+    useBuilderStore.getState().setHistory({ past: [[node('bad id')]], future: [] })
+    expect(useBuilderStore.getState().past).toEqual([])
+    expect(useBuilderStore.getState().future).toEqual([])
+  })
 })

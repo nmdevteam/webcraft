@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, Code2, Copy, Monitor, FilePlus2, FolderOpen, FolderPlus, GitBranch, ImagePlus, Layers3, LoaderCircle, MoreHorizontal, Move, Pencil, Plus, Redo2, Save, Settings2, Smartphone, Tablet, Trash2, Undo2, X } from 'lucide-react'
 import { COMPONENT_TYPES, ProjectSettingsSchema, StyleSchema, type BaseNodeStyle, type BuilderNode, type ComponentType, type ProjectSettings, type TypographyPresetName } from '@webcraft/core/schema'
+import { PageUndoHistorySchema, type PageUndoHistory } from '@webcraft/core/schema'
 import { SiteRenderer } from '@webcraft/core/renderer'
 import { api, apiAllDocs, apiDoc, apiFetch, jsonBody } from '../api'
 import { AuthenticatedImage } from './AuthenticatedImage'
@@ -10,12 +11,13 @@ import { deleteDraft, getDraft, saveDraft } from '../lib/recovery'
 import { downloadProjectZip, exportProjectToFolder } from '../lib/export'
 import { Button, IconButton, Input, Status } from './ui'
 import { ProjectSettingsModal } from './ProjectSettingsModal'
+import { HistoryModal } from './HistoryModal'
 import { NodeTokenControls } from './NodeTokenControls'
 import { AdvancedStylePanel } from './AdvancedStylePanel'
 import { SelectionActions } from './SelectionActions'
 
 type Project = { id: string; name: string; category: string; templateId: string; settings: ProjectSettings; updatedAt: string }
-type Page = { id: string; title: string; slug: string; isHome: boolean; seoTitle?: string; seoDescription?: string; nodes: BuilderNode[]; revision: number; updatedAt: string }
+type Page = { id: string; title: string; slug: string; isHome: boolean; seoTitle?: string; seoDescription?: string; nodes: BuilderNode[]; revision: number; updatedAt: string; undoHistory?: PageUndoHistory }
 type AssetFolder = { id: string; name: string; project: string }
 type Asset = { id: string; filename: string; name?: string; url?: string; alt?: string; filesize?: number; mimeType?: string; folder?: string | AssetFolder | null }
 type Tab = 'elements' | 'pages' | 'layers' | 'assets'
@@ -33,6 +35,17 @@ function replaceMediaReferences(value: unknown, oldPath: string, newPath: string
   if (Array.isArray(value)) return value.map((item) => replaceMediaReferences(item, oldPath, newPath))
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceMediaReferences(item, oldPath, newPath)]))
   return value
+}
+
+function boundedUndoHistory(past: BuilderNode[][], future: BuilderNode[][]): PageUndoHistory {
+  const candidate = { past: past.slice(-10), future: future.slice(0, 10) }
+  while (true) {
+    const parsed = PageUndoHistorySchema.safeParse(candidate)
+    if (parsed.success) return parsed.data
+    if (candidate.past.length) candidate.past = candidate.past.slice(1)
+    else if (candidate.future.length) candidate.future = candidate.future.slice(0, -1)
+    else return { past: [], future: [] }
+  }
 }
 
 export function Editor() {
@@ -56,6 +69,7 @@ export function Editor() {
   const [assetSearch, setAssetSearch] = useState('')
   const [uploadBusy, setUploadBusy] = useState(false)
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settings, setSettings] = useState<ProjectSettings>(() => ProjectSettingsSchema.parse({}))
   const [pushOpen, setPushOpen] = useState(false)
@@ -95,6 +109,7 @@ export function Editor() {
         }
       } catch { /* IndexedDB may be unavailable; server persistence still works. */ }
       store.getState().setNodes(initial)
+      store.getState().setHistory(page.undoHistory ?? { past: [], future: [] })
       initializedPageRef.current = page.id
       setReady(true)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not open this project.') }
@@ -102,20 +117,23 @@ export function Editor() {
   useEffect(() => { void loadProject() }, [projectId])
 
   const savePage = useCallback(async (manual: boolean) => {
-    if (!activePage || !ready) return
-    if (savingRef.current) { pendingRef.current = true; return }
+    if (!activePage || !ready) return false
+    if (savingRef.current) { pendingRef.current = true; return false }
     savingRef.current = true; pendingRef.current = false
-    const snapshot = structuredClone(store.getState().nodes)
+    const editorState = store.getState()
+    const snapshot = structuredClone(editorState.nodes)
+    const undoHistory = boundedUndoHistory(editorState.past, editorState.future)
     setSaveStatus('saving'); setError('')
     try { await saveDraft({ pageId: activePage.id, nodes: snapshot, revision: activePage.revision, savedAt: Date.now() }) } catch { /* recovery is best-effort */ }
     let lastError: unknown
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        const response = await api<any>(`/pages/${encodeURIComponent(activePage.id)}`, { method: 'PATCH', body: jsonBody({ nodes: snapshot, revision: activePage.revision }) })
+        const response = await api<any>(`/pages/${encodeURIComponent(activePage.id)}`, { method: 'PATCH', body: jsonBody({ nodes: snapshot, undoHistory, revision: activePage.revision }) })
         const saved = response?.doc ?? response
-        const updated: Page = { ...activePage, nodes: snapshot, revision: Number(saved.revision ?? activePage.revision + 1), updatedAt: saved.updatedAt ?? new Date().toISOString() }
+        const updated: Page = { ...activePage, nodes: snapshot, undoHistory: saved.undoHistory ?? undoHistory, revision: Number(saved.revision ?? activePage.revision + 1), updatedAt: saved.updatedAt ?? new Date().toISOString() }
         setActivePage(updated); setPages((current) => current.map((page) => page.id === updated.id ? updated : page)); setSaveStatus('saved'); setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); setError('')
         try { await deleteDraft(activePage.id) } catch { /* harmless if a recovery record remains */ }
+        if ((project?.settings.historyIntervalMinutes ?? 15) > 0) void api(`/webcraft/projects/${encodeURIComponent(projectId)}/history`, { method: 'POST', body: jsonBody({ reason: 'automatic', label: 'Automatic snapshot' }) }).catch(() => undefined)
         lastError = null; break
       } catch (err) {
         lastError = err
@@ -127,7 +145,19 @@ export function Editor() {
     savingRef.current = false
     if (pendingRef.current) { pendingRef.current = false; void savePage(false) }
     if (manual && !lastError) setNotice('All changes saved.')
-  }, [activePage, ready, store])
+    return !lastError
+  }, [activePage, project, projectId, ready, store])
+  const savePageRef = useRef(savePage)
+  useEffect(() => { savePageRef.current = savePage }, [savePage])
+
+  async function flushPage() {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const saved = await savePageRef.current(true)
+      if (saved && !savingRef.current && !pendingRef.current) return
+      await new Promise((resolve) => setTimeout(resolve, 75))
+    }
+    throw new Error('Could not save the current page. Resolve the save error before continuing.')
+  }
 
   const copySelection = useCallback((cut = false) => {
     const state = store.getState()
@@ -199,8 +229,15 @@ export function Editor() {
 
   async function switchPage(page: Page) {
     if (page.id === activePage?.id) return
-    if (saveStatus === 'unsaved' || saveStatus === 'failed') await savePage(true)
-    setReady(false); setActivePage(page); setQuery({ page: page.id }, { replace: true }); store.getState().setNodes(page.nodes); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
+    if (saveStatus === 'unsaved' || saveStatus === 'failed') await flushPage()
+    setReady(false); setActivePage(page); setQuery({ page: page.id }, { replace: true }); store.getState().setNodes(page.nodes); store.getState().setHistory(page.undoHistory ?? { past: [], future: [] }); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
+  }
+  async function captureProjectSnapshot(reason: 'manual'|'before-delete'|'before-settings-change', label: string) {
+    return api(`/webcraft/projects/${encodeURIComponent(projectId)}/history`, { method: 'POST', body: jsonBody({ reason, label }) })
+  }
+  async function openHistory() {
+    await flushPage()
+    setHistoryOpen(true)
   }
   async function newPage() {
     const title = window.prompt('New page name', 'New page')?.trim(); if (!title) return
@@ -209,33 +246,55 @@ export function Editor() {
     try {
       const page = await apiDoc<Page>('/pages', { method: 'POST', body: jsonBody({ title, slug, isHome: false, nodes: [], revision: 0, project: projectId }) })
       setPages((current) => [...current, page]); await switchPage(page)
+      await captureProjectSnapshot('manual', `Page created: ${title}`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not create page.') }
   }
   async function renamePage(page: Page) {
     const title = window.prompt('Page name', page.title)?.trim(); if (!title || title === page.title) return
     const base = slugify(title); let slug = base; let suffix = 2
     while (pages.some((other) => other.id !== page.id && other.slug === slug)) slug = `${base}-${suffix++}`
-    try { const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ title, slug }) }); const updated = { ...page, ...(saved.doc ?? saved), title, slug }; setPages((current) => current.map((p) => p.id === page.id ? updated : p)); if (activePage?.id === page.id) setActivePage(updated) }
+    try { const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ title, slug }) }); const updated = { ...page, ...(saved.doc ?? saved), title, slug }; setPages((current) => current.map((p) => p.id === page.id ? updated : p)); if (activePage?.id === page.id) setActivePage(updated); await captureProjectSnapshot('manual', `Page updated: ${title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not rename page.') }
+  }
+  async function updatePageSlug(page: Page, value: string) {
+    const slug = slugify(value)
+    if (slug === page.slug) return
+    try {
+      if (activePage?.id === page.id) await flushPage()
+      const saved = await api<any>(`/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: jsonBody({ slug }) })
+      const updated = { ...page, ...(saved.doc ?? saved), slug }
+      setPages((current) => current.map((item) => item.id === page.id ? updated : item))
+      if (activePage?.id === page.id) setActivePage(updated)
+      await captureProjectSnapshot('manual', `Page URL updated: ${page.title}`)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not update the page URL.') }
   }
   async function duplicatePage(page: Page) {
     const slug = `${page.slug}-copy`.slice(0,80)
-    try { const copy = await apiDoc<Page>('/pages', { method: 'POST', body: jsonBody({ title: `${page.title} copy`, slug, isHome: false, nodes: page.nodes, revision: 0, project: projectId }) }); setPages((current) => [...current, copy]); await switchPage(copy) }
+    try { const copy = await apiDoc<Page>('/pages', { method: 'POST', body: jsonBody({ title: `${page.title} copy`, slug, isHome: false, nodes: page.nodes, revision: 0, project: projectId }) }); setPages((current) => [...current, copy]); await switchPage(copy); await captureProjectSnapshot('manual', `Page duplicated: ${page.title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not duplicate page.') }
   }
   async function deletePage(page: Page) {
     if (pages.length <= 1) { setError('A website must keep at least one page.'); return }
     if (!window.confirm(`Delete the “${page.title}” page?`)) return
-    try { await api(`/pages/${page.id}`, { method: 'DELETE' }); const nextPages = pages.filter((p) => p.id !== page.id); setPages(nextPages); if (activePage?.id === page.id) await switchPage(nextPages[0]!) }
+    try {
+      if (activePage?.id === page.id) await flushPage()
+      await captureProjectSnapshot('before-delete', `Before deleting page: ${page.title}`)
+      await api(`/pages/${page.id}`, { method: 'DELETE' })
+      const nextPages = pages.filter((p) => p.id !== page.id)
+      setPages(nextPages)
+      if (activePage?.id === page.id) await switchPage(nextPages[0]!)
+      try { await captureProjectSnapshot('manual', `Page deleted: ${page.title}`) }
+      catch { setNotice(`Deleted “${page.title}”. The before-delete recovery snapshot was saved.`) }
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not delete page.') }
   }
   async function setHome(page: Page) {
-    try { for (const item of pages) if (item.isHome && item.id !== page.id) await api(`/pages/${item.id}`, { method: 'PATCH', body: jsonBody({ isHome: false }) }); const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ isHome: true }) }); setPages((current) => current.map((p) => ({ ...p, isHome: p.id === page.id }))); if (activePage?.id === page.id) setActivePage({ ...page, ...(saved.doc ?? saved), isHome: true }) }
+    try { for (const item of pages) if (item.isHome && item.id !== page.id) await api(`/pages/${item.id}`, { method: 'PATCH', body: jsonBody({ isHome: false }) }); const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ isHome: true }) }); setPages((current) => current.map((p) => ({ ...p, isHome: p.id === page.id }))); if (activePage?.id === page.id) setActivePage({ ...page, ...(saved.doc ?? saved), isHome: true }); await captureProjectSnapshot('manual', `Homepage changed: ${page.title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not set homepage.') }
   }
   async function updatePageSeo(field: 'seoTitle'|'seoDescription', value: string) {
     if (!activePage) return
-    try { await api(`/pages/${activePage.id}`, { method: 'PATCH', body: jsonBody({ [field]: value }) }); const next = { ...activePage, [field]: value }; setActivePage(next); setPages((current) => current.map((p) => p.id === next.id ? next : p)) }
+    try { await api(`/pages/${activePage.id}`, { method: 'PATCH', body: jsonBody({ [field]: value }) }); const next = { ...activePage, [field]: value }; setActivePage(next); setPages((current) => current.map((p) => p.id === next.id ? next : p)); await captureProjectSnapshot('manual', `Page SEO updated: ${next.title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not update page SEO.') }
   }
 
@@ -343,7 +402,18 @@ export function Editor() {
   function insertAsset(asset: Asset) { const src = `/media/${encodeURIComponent(asset.filename)}`; store.getState().add({ ...makeNode('image'), props: { src, alt: asset.alt ?? '' } }); setTab('layers') }
   async function saveProjectSettings(event: React.FormEvent) {
     event.preventDefault(); setError(''); setSettingsSaving(true)
-    try { const validSettings = ProjectSettingsSchema.parse(settings); const response = await api<any>(`/projects/${projectId}`, { method: 'PATCH', body: jsonBody({ name: validSettings.title || project?.name, settings: validSettings }) }); setSettings(validSettings); setProject((p) => p ? { ...p, ...(response.doc ?? response), name: validSettings.title || p.name, settings: validSettings } : p); setProjectSettingsOpen(false); setNotice('Website settings saved.') }
+    try {
+      const validSettings = ProjectSettingsSchema.parse(settings)
+      const changed = JSON.stringify(validSettings) !== JSON.stringify(project?.settings)
+      let postSnapshotFailed = false
+      await flushPage()
+      if (changed) await captureProjectSnapshot('before-settings-change', 'Before website settings change')
+      const response = await api<any>(`/projects/${projectId}`, { method: 'PATCH', body: jsonBody({ name: validSettings.title || project?.name, settings: validSettings }) })
+      setSettings(validSettings)
+      setProject((p) => p ? { ...p, ...(response.doc ?? response), name: validSettings.title || p.name, settings: validSettings } : p)
+      if (changed) { try { await captureProjectSnapshot('manual', 'Website settings updated') } catch { postSnapshotFailed = true } }
+      setProjectSettingsOpen(false); setNotice(postSnapshotFailed ? 'Settings saved. The pre-change recovery snapshot is available, but a new snapshot could not be added.' : 'Website settings saved.')
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not save settings.') }
     finally { setSettingsSaving(false) }
   }
@@ -410,9 +480,10 @@ export function Editor() {
         <div className="panel-tip">SVG uploads are disabled to avoid unsafe active content. Renaming an asset changes its stored filename and updates saved references.</div></>}
       </div></aside>
       <main className="editor-canvas-area"><div className="canvas-topline"><div className="canvas-breadcrumb"><FolderOpen size={14}/><span>{project.name}</span><b>/</b><strong>{activePage.title}</strong></div><span className="canvas-width-label">{canvasWidth} px</span></div><div className={`canvas-workbench device-${viewport}`} onDragOver={(e)=>e.preventDefault()} onDrop={onDrop} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><div className="canvas-page" style={{width:`${canvasWidth}px`,maxWidth:'100%'}} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><SiteRenderer nodes={nodes} settings={settings} selectedId={selectedId} selectedIds={selectedIds} editMode onClearSelection={()=>store.getState().select(null)} onSelect={(id,additive)=>store.getState().select(id,Boolean(additive))} onTextChange={(id,text)=>store.getState().updateText(id,text)} pageSlugs={pages.map((p)=>p.slug)}/>{nodes.length===0 && <div className="canvas-empty"><div><SparkleGlyph/><h2>Start with a blank canvas</h2><p>Choose a component from the left, or drag one here.</p><Button variant="primary" size="sm" onClick={()=>{setTab('elements');addNode('hero')}}><Plus size={14}/>Add a hero section</Button></div></div>}</div></div><div className="canvas-footline"><span>Canvas · {viewport}</span><span>Click text to edit · drag components to reorder</span></div></main>
-      <aside className="editor-right"><div className="inspector-head"><div><b>Properties</b><small>{selectedIds.length > 1 ? `${selectedIds.length} selected · editing primary` : selectedNode?labels[selectedNode.type]:activePage.title}</small></div><IconButton label="Website settings" onClick={openProjectSettings}><Settings2 size={17}/></IconButton></div><div className="inspector-content">{selectedNode ? <><div className="inspector-section"><span className="inspector-label">CONTENT</span>{['heading','paragraph','text','button','link','hero','features','testimonials','pricing','faq','team','statistics','gallery','cta','card','navbar','footer','section','container'].includes(selectedNode.type) && <label className="field-label">Text<Input key={`text-${selectedNode.id}-${selectedNode.props.text}`} defaultValue={selectedNode.props.text??''} maxLength={2000} onBlur={(e)=>store.getState().updateText(selectedNode.id,e.currentTarget.value)}/></label>}{(selectedNode.type==='button'||selectedNode.type==='link') && <label className="field-label">Link URL<Input key={`href-${selectedNode.id}`} defaultValue={selectedNode.props.href??''} placeholder="https:// or /page" maxLength={500} onBlur={(e)=>{const value=e.currentTarget.value;if(/^(javascript|data|file|vbscript):/i.test(value)) {setError('Unsafe links are not allowed.');e.currentTarget.value='';return}; const n=findNode(store.getState().nodes,selectedNode.id);if(n)store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{href:value}),true)}}/></label>}{selectedNode.type==='heading' && <label className="field-label">Heading level<select className="input" value={selectedNode.props.level??2} onChange={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{level:Number(e.target.value)}),true)}>{[1,2,3,4,5,6].map((n)=><option key={n} value={n}>H{n}</option>)}</select></label>}{selectedNode.type==='image' && <><label className="field-label">Image source<Input key={`src-${selectedNode.id}`} defaultValue={selectedNode.props.src??''} placeholder="https://… or choose an asset" maxLength={1000} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{src:e.currentTarget.value}),true)}/></label><label className="field-label">Alt text<Input key={`alt-${selectedNode.id}`} defaultValue={selectedNode.props.alt??''} maxLength={500} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{alt:e.currentTarget.value}),true)}/></label><Button size="sm" onClick={()=>setTab('assets')}><ImagePlus size={14}/>Choose from assets</Button></>}</div><div className="inspector-section"><span className="inspector-label">COLORS</span><label className="field-label">Text color<StyleInput value={selectedNode.style.color} onSave={(value)=>void updateStyle('color',value)} placeholder="#202338"/></label><label className="field-label">Background<StyleInput value={selectedNode.style.backgroundColor} onSave={(value)=>void updateStyle('backgroundColor',value)} placeholder="transparent"/></label></div><NodeTokenControls system={settings.designSystem!} node={selectedNode} onStyle={(field,value)=>void updateStyle(field,value)} onPreset={applyTypographyPreset}/><div className="inspector-section"><span className="inspector-label">TYPOGRAPHY</span><label className="field-label">Font size<StyleInput value={selectedNode.style.fontSize} onSave={(value)=>void updateStyle('fontSize',value)} placeholder="1rem"/></label><label className="field-label">Alignment<select className="input" value={selectedNode.style.textAlign??'left'} onChange={(e)=>void updateStyle('textAlign',e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label></div><div className="inspector-section"><span className="inspector-label">SPACING & SHAPE</span><label className="field-label">Padding<StyleInput value={selectedNode.style.padding} onSave={(value)=>void updateStyle('padding',value)} placeholder="1rem"/></label><label className="field-label">Border radius<StyleInput value={selectedNode.style.borderRadius} onSave={(value)=>void updateStyle('borderRadius',value)} placeholder="0.5rem"/></label><label className="field-label">Width<StyleInput value={selectedNode.style.width} onSave={(value)=>void updateStyle('width',value)} placeholder="100%"/></label></div><div className="inspector-actions"><Button size="sm" onClick={()=>store.getState().duplicate(selectedNode.id)}><Copy size={14}/>Duplicate</Button><Button size="sm" variant="danger" onClick={()=>store.getState().remove(selectedNode.id)}><Trash2 size={14}/>Delete</Button></div></> : <><div className="page-properties"><span className="page-properties-mark">▤</span><h3>{activePage.title}</h3><p>Page settings and SEO information.</p><label className="field-label">Page title<Input key={`pt-${activePage.id}-${activePage.title}`} defaultValue={activePage.title} maxLength={120} onBlur={(e)=>{if(e.currentTarget.value.trim() && e.currentTarget.value!==activePage.title) void renamePage({...activePage,title:e.currentTarget.value})}}/></label><label className="field-label">URL slug<Input key={`ps-${activePage.id}-${activePage.slug}`} defaultValue={activePage.slug} maxLength={80} onBlur={(e)=>{const slug=slugify(e.currentTarget.value);if(slug!==activePage.slug) void api(`/pages/${activePage.id}`,{method:'PATCH',body:jsonBody({slug})}).then(()=>{const updated={...activePage,slug};setActivePage(updated);setPages(pages.map(x=>x.id===updated.id?updated:x))}).catch((err)=>setError(err.message))}}/></label><label className="field-label">SEO title<Input key={`seo-${activePage.id}-${activePage.seoTitle}`} defaultValue={activePage.seoTitle??''} maxLength={120} placeholder="Page title for search" onBlur={(e)=>void updatePageSeo('seoTitle',e.currentTarget.value)}/></label><label className="field-label">SEO description<textarea key={`desc-${activePage.id}-${activePage.seoDescription}`} className="input textarea" defaultValue={activePage.seoDescription??''} maxLength={300} placeholder="Short page description" onBlur={(e)=>void updatePageSeo('seoDescription',e.currentTarget.value)}/></label><Button size="sm" onClick={()=>void setHome(activePage)}>{activePage.isHome?<Check size={14}/>:<Plus size={14}/>} {activePage.isHome?'Homepage':'Set as homepage'}</Button></div></>}</div><div className="inspector-footer"><span><Check size={13}/>Changes autosave locally</span><button onClick={openProjectSettings}>Website settings</button></div></aside></div>
+      <aside className="editor-right"><div className="inspector-head"><div><b>Properties</b><small>{selectedIds.length > 1 ? `${selectedIds.length} selected · editing primary` : selectedNode?labels[selectedNode.type]:activePage.title}</small></div><IconButton label="Website settings" onClick={openProjectSettings}><Settings2 size={17}/></IconButton></div><div className="inspector-content">{selectedNode ? <><div className="inspector-section"><span className="inspector-label">CONTENT</span>{['heading','paragraph','text','button','link','hero','features','testimonials','pricing','faq','team','statistics','gallery','cta','card','navbar','footer','section','container'].includes(selectedNode.type) && <label className="field-label">Text<Input key={`text-${selectedNode.id}-${selectedNode.props.text}`} defaultValue={selectedNode.props.text??''} maxLength={2000} onBlur={(e)=>store.getState().updateText(selectedNode.id,e.currentTarget.value)}/></label>}{(selectedNode.type==='button'||selectedNode.type==='link') && <label className="field-label">Link URL<Input key={`href-${selectedNode.id}`} defaultValue={selectedNode.props.href??''} placeholder="https:// or /page" maxLength={500} onBlur={(e)=>{const value=e.currentTarget.value;if(/^(javascript|data|file|vbscript):/i.test(value)) {setError('Unsafe links are not allowed.');e.currentTarget.value='';return}; const n=findNode(store.getState().nodes,selectedNode.id);if(n)store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{href:value}),true)}}/></label>}{selectedNode.type==='heading' && <label className="field-label">Heading level<select className="input" value={selectedNode.props.level??2} onChange={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{level:Number(e.target.value)}),true)}>{[1,2,3,4,5,6].map((n)=><option key={n} value={n}>H{n}</option>)}</select></label>}{selectedNode.type==='image' && <><label className="field-label">Image source<Input key={`src-${selectedNode.id}`} defaultValue={selectedNode.props.src??''} placeholder="https://… or choose an asset" maxLength={1000} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{src:e.currentTarget.value}),true)}/></label><label className="field-label">Alt text<Input key={`alt-${selectedNode.id}`} defaultValue={selectedNode.props.alt??''} maxLength={500} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{alt:e.currentTarget.value}),true)}/></label><Button size="sm" onClick={()=>setTab('assets')}><ImagePlus size={14}/>Choose from assets</Button></>}</div><div className="inspector-section"><span className="inspector-label">COLORS</span><label className="field-label">Text color<StyleInput value={selectedNode.style.color} onSave={(value)=>void updateStyle('color',value)} placeholder="#202338"/></label><label className="field-label">Background<StyleInput value={selectedNode.style.backgroundColor} onSave={(value)=>void updateStyle('backgroundColor',value)} placeholder="transparent"/></label></div><NodeTokenControls system={settings.designSystem!} node={selectedNode} onStyle={(field,value)=>void updateStyle(field,value)} onPreset={applyTypographyPreset}/><div className="inspector-section"><span className="inspector-label">TYPOGRAPHY</span><label className="field-label">Font size<StyleInput value={selectedNode.style.fontSize} onSave={(value)=>void updateStyle('fontSize',value)} placeholder="1rem"/></label><label className="field-label">Alignment<select className="input" value={selectedNode.style.textAlign??'left'} onChange={(e)=>void updateStyle('textAlign',e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label></div><div className="inspector-section"><span className="inspector-label">SPACING & SHAPE</span><label className="field-label">Padding<StyleInput value={selectedNode.style.padding} onSave={(value)=>void updateStyle('padding',value)} placeholder="1rem"/></label><label className="field-label">Border radius<StyleInput value={selectedNode.style.borderRadius} onSave={(value)=>void updateStyle('borderRadius',value)} placeholder="0.5rem"/></label><label className="field-label">Width<StyleInput value={selectedNode.style.width} onSave={(value)=>void updateStyle('width',value)} placeholder="100%"/></label></div><div className="inspector-actions"><Button size="sm" onClick={()=>store.getState().duplicate(selectedNode.id)}><Copy size={14}/>Duplicate</Button><Button size="sm" variant="danger" onClick={()=>store.getState().remove(selectedNode.id)}><Trash2 size={14}/>Delete</Button></div></> : <><div className="page-properties"><span className="page-properties-mark">▤</span><h3>{activePage.title}</h3><p>Page settings and SEO information.</p><label className="field-label">Page title<Input key={`pt-${activePage.id}-${activePage.title}`} defaultValue={activePage.title} maxLength={120} onBlur={(e)=>{if(e.currentTarget.value.trim() && e.currentTarget.value!==activePage.title) void renamePage({...activePage,title:e.currentTarget.value})}}/></label><label className="field-label">URL slug<Input key={`ps-${activePage.id}-${activePage.slug}`} defaultValue={activePage.slug} maxLength={80} onBlur={(e)=>void updatePageSlug(activePage,e.currentTarget.value)}/></label><label className="field-label">SEO title<Input key={`seo-${activePage.id}-${activePage.seoTitle}`} defaultValue={activePage.seoTitle??''} maxLength={120} placeholder="Page title for search" onBlur={(e)=>void updatePageSeo('seoTitle',e.currentTarget.value)}/></label><label className="field-label">SEO description<textarea key={`desc-${activePage.id}-${activePage.seoDescription}`} className="input textarea" defaultValue={activePage.seoDescription??''} maxLength={300} placeholder="Short page description" onBlur={(e)=>void updatePageSeo('seoDescription',e.currentTarget.value)}/></label><Button size="sm" onClick={()=>void setHome(activePage)}>{activePage.isHome?<Check size={14}/>:<Plus size={14}/>} {activePage.isHome?'Homepage':'Set as homepage'}</Button></div></>}</div><div className="inspector-footer"><span><Check size={13}/>Changes autosave locally</span><button onClick={openProjectSettings}>Website settings</button></div></aside></div>
     {error && <div className="editor-toast error" role="alert">{error}<button onClick={()=>setError('')}><X size={15}/></button></div>}{notice && <div className="editor-toast success">{notice}<button onClick={()=>setNotice('')}><X size={15}/></button></div>}
-    {projectSettingsOpen && project && <ProjectSettingsModal projectName={project.name} settings={settings} assets={assets} pages={pages.map((page)=>page.id===activePage.id?nodes:page.nodes)} saving={settingsSaving} onChange={setSettings} onSubmit={(e)=>void saveProjectSettings(e)} onClose={()=>setProjectSettingsOpen(false)}/>}
+    {projectSettingsOpen && project && <ProjectSettingsModal projectName={project.name} settings={settings} assets={assets} pages={pages.map((page)=>page.id===activePage.id?nodes:page.nodes)} saving={settingsSaving} onChange={setSettings} onSubmit={(e)=>void saveProjectSettings(e)} onClose={()=>setProjectSettingsOpen(false)} onOpenHistory={()=>{setProjectSettingsOpen(false);void openHistory()}}/>}
+    {historyOpen && project && <HistoryModal projectId={projectId} project={project} pages={pages.map((page)=>page.id===activePage.id?{...page,nodes}:page)} onClose={()=>setHistoryOpen(false)} onRestored={async()=>{await loadProject();setNotice('Project version restored.')}}/>}
     {selectedNode && <AdvancedStylePanel node={selectedNode} onUpdate={(mode,field,value)=>updateStyle(field,value,mode)}/>}
     {selectedIds.length > 0 && <SelectionActions count={selectedIds.length} onCopy={() => copySelection()} onDuplicate={() => duplicateSelection()} onDelete={() => deleteSelection()}/> }
     {pushOpen && <div className="modal-backdrop"><div className="modal-card"><div className="modal-head"><span className="modal-icon"><GitBranch size={18}/></span><button type="button" className="close-modal" onClick={()=>setPushOpen(false)}>×</button></div><span className="eyebrow">GITHUB PUSH</span><h2>Choose a repository</h2><p>WebCraft generates and validates a standalone Vite site before committing its source.</p>{repositories.length ? <label className="field-label">Repository<select className="input select-input" value={selectedRepo} onChange={(e)=>setSelectedRepo(e.target.value)}>{repositories.map((repo)=><option key={repo.fullName} value={repo.fullName}>{repo.fullName} · {repo.private?'Private':'Public'}</option>)}</select></label> : <div className="settings-empty">No repositories found. Create one in Settings first.</div>}<div className="modal-actions"><Button type="button" onClick={()=>setPushOpen(false)}>Cancel</Button><Button variant="primary" busy={pushBusy} disabled={!selectedRepo} onClick={()=>void pushToGitHub()}><GitBranch size={15}/>Validate & push</Button></div></div></div>}

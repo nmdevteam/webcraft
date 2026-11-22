@@ -108,6 +108,7 @@ export const ProjectSettingsSchema = z.object({
   faviconPath: safeMediaPath.default(''),
   customCss: safeCustomCss.default(''),
   customMetaTags: z.array(MetaTagSchema).max(16).default([]),
+  historyIntervalMinutes: z.number().int().min(0).max(1440).default(15),
   breakpoints: z.object({
     mobile: z.number().int().min(360).max(767).default(600),
     tablet: z.number().int().min(768).max(1280).default(900),
@@ -134,6 +135,54 @@ export const PageDataSchema = z.object({
 }).strict().superRefine((page, ctx) => {
   try { validateTree(page.nodes) } catch (error) { ctx.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'Invalid tree' }) }
 })
+
+const UndoTreeSchema = z.array(NodeSchema).max(200).superRefine((nodes, ctx) => {
+  try { validateTree(nodes) } catch (error) { ctx.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'Invalid history tree' }) }
+})
+export const PageUndoHistorySchema = z.object({
+  past: z.array(UndoTreeSchema).max(40).default([]),
+  future: z.array(UndoTreeSchema).max(40).default([]),
+}).strict().superRefine((history, ctx) => {
+  if (JSON.stringify(history).length > 750_000) ctx.addIssue({ code: 'custom', message: 'Persistent undo history exceeds the storage limit.' })
+})
+export type PageUndoHistory = z.infer<typeof PageUndoHistorySchema>
+
+export const VERSION_REASONS = ['automatic', 'manual', 'before-delete', 'before-settings-change', 'before-restore'] as const
+export type VersionReason = (typeof VERSION_REASONS)[number]
+
+const ProjectVersionPageSchema = z.object({
+  sourceId: z.string().min(1).max(120),
+  title: z.string().min(1).max(120),
+  slug: z.string().min(1).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  isHome: z.boolean().default(false),
+  seoTitle: z.string().max(120).optional(),
+  seoDescription: z.string().max(300).optional(),
+  nodes: z.array(NodeSchema).max(200),
+}).strict().superRefine((page, ctx) => {
+  try { validateTree(page.nodes) } catch (error) { ctx.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'Invalid page tree' }) }
+})
+
+export const ProjectVersionSnapshotSchema = z.object({
+  project: z.object({
+    name: z.string().min(1).max(120),
+    category: z.string().min(1).max(80),
+    templateId: z.string().min(1).max(80),
+    settings: ProjectSettingsSchema,
+  }).strict(),
+  pages: z.array(ProjectVersionPageSchema).min(1).max(100),
+}).strict().superRefine((snapshot, ctx) => {
+  const slugs = new Set<string>()
+  const ids = new Set<string>()
+  let homepageCount = 0
+  snapshot.pages.forEach((page, index) => {
+    if (slugs.has(page.slug)) ctx.addIssue({ code: 'custom', path: ['pages', index, 'slug'], message: 'Snapshot page slugs must be unique.' })
+    if (ids.has(page.sourceId)) ctx.addIssue({ code: 'custom', path: ['pages', index, 'sourceId'], message: 'Snapshot page IDs must be unique.' })
+    if (page.isHome && ++homepageCount > 1) ctx.addIssue({ code: 'custom', path: ['pages', index, 'isHome'], message: 'A snapshot can have at most one homepage.' })
+    slugs.add(page.slug)
+    ids.add(page.sourceId)
+  })
+})
+export type ProjectVersionSnapshot = z.infer<typeof ProjectVersionSnapshotSchema>
 
 export function safeUrl(value: string | undefined, fallback = '#'): string {
   if (!value) return fallback

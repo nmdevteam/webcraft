@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { Plus, Save, Trash2 } from 'lucide-react'
+import { History, Plus, Save, Trash2 } from 'lucide-react'
 import type { BuilderNode, DesignSystem, ProjectSettings } from '@webcraft/core/schema'
 import { Button, Input } from './ui'
 import { DesignSystemManager } from './DesignSystemManager'
@@ -14,9 +14,10 @@ type Props = {
   onChange: (settings: ProjectSettings) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onClose: () => void
+  onOpenHistory: () => void
 }
 
-export function ProjectSettingsModal({ projectName, settings, assets, pages, saving, onChange, onSubmit, onClose }: Props) {
+export function ProjectSettingsModal({ projectName, settings, assets, pages, saving, onChange, onSubmit, onClose, onOpenHistory }: Props) {
   const patch = (values: Partial<ProjectSettings>) => onChange({ ...settings, ...values })
   const changePrimaryColor = (value: string) => {
     const designSystem = settings.designSystem!
@@ -54,6 +55,9 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Responsive breakpoints</b><small>Widths used by responsive styles and preview device modes.</small></div></div>
       <div className="settings-form-grid"><label className="field-label">Mobile max width (px)<Input type="number" min={360} max={767} value={settings.breakpoints.mobile} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, mobile: Number(e.target.value) } })}/></label><label className="field-label">Tablet max width (px)<Input type="number" min={768} max={1280} value={settings.breakpoints.tablet} onChange={(e)=>patch({ breakpoints: { ...settings.breakpoints, tablet: Number(e.target.value) } })}/></label></div>
     </section>
+    <section className="project-settings-section"><div className="settings-subhead"><div><b>Automatic version snapshots</b><small>After meaningful edits are saved, keep a project-wide recovery point at this interval.</small></div></div>
+      <label className="field-label">Snapshot interval<select className="input" value={settings.historyIntervalMinutes} onChange={(e)=>patch({ historyIntervalMinutes: Number(e.target.value) })}><option value={0}>Off</option><option value={5}>Every 5 minutes</option><option value={15}>Every 15 minutes</option><option value={30}>Every 30 minutes</option><option value={60}>Every hour</option><option value={1440}>Every day</option></select></label>
+    </section>
     <DesignSystemManager system={settings.designSystem!} nodes={pages.flat()} customCss={settings.customCss} onChange={changeDesignSystem}/>
     <section className="project-settings-section"><div className="settings-subhead"><div><b>Custom CSS</b><small>Added to the standalone site. @import and executable URL schemes are blocked.</small></div></div>
       <label className="field-label">Styles<textarea className="input textarea code-textarea" value={settings.customCss} maxLength={20000} spellCheck={false} placeholder=".wc-site-brand { padding: 1rem; }" onChange={(e)=>patch({ customCss: e.target.value })}/></label><small className="settings-help">{settings.customCss.length.toLocaleString()} / 20,000 characters</small>
@@ -67,6 +71,6 @@ export function ProjectSettingsModal({ projectName, settings, assets, pages, sav
         <button type="button" className="icon-button meta-remove" aria-label={`Remove meta tag ${index+1}`} onClick={()=>patch({ customMetaTags: settings.customMetaTags.filter((_,i)=>i!==index) })}><Trash2 size={15}/></button>
       </div>)}
     </section>
-    <div className="modal-actions"><Button type="button" onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" busy={saving}><Save size={15}/>Save settings</Button></div>
+    <div className="modal-actions"><Button type="button" onClick={onClose}>Cancel</Button><Button type="button" onClick={onOpenHistory}><History size={15}/>Version history</Button><Button variant="primary" type="submit" busy={saving}><Save size={15}/>Save settings</Button></div>
   </form></div>
 }

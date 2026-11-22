@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { validateTree, type BuilderNode, type NodeStyle } from '@webcraft/core/schema'
+import { PageUndoHistorySchema, validateTree, type BuilderNode, type NodeStyle } from '@webcraft/core/schema'
 
 type BuilderState = {
   nodes: BuilderNode[]
@@ -8,6 +8,7 @@ type BuilderState = {
   past: BuilderNode[][]
   future: BuilderNode[][]
   setNodes: (nodes: BuilderNode[], remember?: boolean) => void
+  setHistory: (history: unknown) => void
   select: (id: string | null, additive?: boolean) => void
   updateText: (id: string, text: string) => void
   updateStyle: (id: string, style: Partial<NodeStyle>) => void
@@ -55,6 +56,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   setNodes: (nodes, remember = false) => {
     const safe = validateTree(nodes)
     set((state) => ({ nodes: safe, selectedId: null, selectedIds: [], past: remember ? [...state.past, clone(state.nodes)].slice(-40) : state.past, future: remember ? [] : state.future }))
+  },
+  setHistory: (history) => {
+    const parsed = PageUndoHistorySchema.safeParse(history ?? {})
+    set({ past: parsed.success ? parsed.data.past : [], future: parsed.success ? parsed.data.future : [] })
   },
   select: (id, additive = false) => {
     if (!id) { set({ selectedId: null, selectedIds: [] }); return }
