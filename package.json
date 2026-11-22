@@ -12,7 +12,7 @@
     "test": "pnpm --filter @webcraft/core test",
     "test:integration": "pnpm --filter @webcraft/core test:integration",
     "typecheck": "pnpm --filter @webcraft/core typecheck && pnpm --filter @webcraft/cms typecheck && pnpm --filter @webcraft/builder typecheck",
-    "audit": "pnpm audit --prod"
+    "security:audit": "pnpm audit --prod"
   },
   "devDependencies": {
     "concurrently": "10.0.7",

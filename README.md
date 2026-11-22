@@ -33,14 +33,14 @@ This repository is an early, working MVP—not a claim that every item in the or
 
 ```sh
 pnpm install
-pnpm setup                 # creates a private .env with random local secrets
+pnpm run setup             # creates a private .env with random local secrets
 docker compose up -d db
 pnpm dev
 ```
 
 Open the builder at <http://127.0.0.1:5173>. On first launch, create the single local owner account. The Payload API is on <http://127.0.0.1:3000> and is bound to loopback by the dev script.
 
-`pnpm setup` does not overwrite an existing `.env`. Keep `.env` private and out of Git. The generated file uses mode `0600`. The compose service binds PostgreSQL to `127.0.0.1:5432` and persists data in the `webcraft-postgres` Docker volume. To stop the database without deleting data, run `docker compose stop db`; deleting the volume removes the database and is destructive.
+`pnpm run setup` does not overwrite an existing `.env`. Keep `.env` private and out of Git. The generated file uses mode `0600`. The compose service binds PostgreSQL to `127.0.0.1:5432` and persists data in the `webcraft-postgres` Docker volume. To stop the database without deleting data, run `docker compose stop db`; deleting the volume removes the database and is destructive.
 
 ## Development and checks
 
@@ -49,7 +49,7 @@ pnpm typecheck
 pnpm test                         # core schema and source-generator tests
 pnpm test:integration             # install and production-build a generated sample site
 pnpm build                         # core, CMS, and builder production builds
-pnpm audit                        # production dependency advisory scan
+pnpm audit                        # dependency advisory scan
 ```
 
 The generated-project validator uses `npm install --ignore-scripts --include=dev` in a fresh temporary directory, then runs the generated `npm run build`, and removes the directory afterward. It accepts at most 300 source files and 8 MB of combined source. Uploaded image data is additionally limited to 5 MB combined per export.
@@ -62,9 +62,9 @@ The app requires an explicit repository selection for each push, validates the g
 
 ## Local data and security notes
 
-WebCraft is intended for a single-owner local installation, not an internet-facing multi-tenant service. Keep its API and database on loopback, use unique secrets from `pnpm setup`, and do not expose PostgreSQL publicly. The CMS enforces owner-scoped access, validates component trees and page fields, restricts uploaded image MIME types/size, rejects unsafe URL schemes and CSS constructs, and escapes generated HTML metadata. The generated renderer uses React text rendering rather than raw HTML insertion. GitHub tokens, `.env`, local media, and the database volume are excluded from source control.
+WebCraft is intended for a single-owner local installation, not an internet-facing multi-tenant service. Keep its API and database on loopback, use unique secrets from `pnpm run setup`, and do not expose PostgreSQL publicly. The CMS enforces owner-scoped access, validates component trees and page fields, restricts uploaded image MIME types/size, rejects unsafe URL schemes and CSS constructs, and escapes generated HTML metadata. The generated renderer uses React text rendering rather than raw HTML insertion. GitHub tokens, `.env`, local media, and the database volume are excluded from source control.
 
-For more detail, see [Security Policy](SECURITY.md) and [Architecture decisions](docs/architecture.md).
+For more detail, see [Security Policy](SECURITY.md), [Architecture decisions](docs/architecture.md), and the [dependency security audit](docs/security-audit.md).
 
 ## License
 

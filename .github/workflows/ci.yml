@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Create isolated build environment
-        run: pnpm setup
+        run: pnpm run setup
       - name: Typecheck
         run: pnpm typecheck
       - name: Unit tests

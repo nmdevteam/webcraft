@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-webcraft}
       POSTGRES_USER: ${POSTGRES_USER:-webcraft}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run `pnpm setup` to create .env first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run `pnpm run setup` to create .env first}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:

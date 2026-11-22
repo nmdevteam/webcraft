@@ -7,7 +7,7 @@ import { Pages } from './src/collections/Pages'
 import { Assets } from './src/collections/Assets'
 
 const secret = process.env.PAYLOAD_SECRET
-if (!secret || secret.length < 32) throw new Error('PAYLOAD_SECRET must be at least 32 characters. Run `pnpm setup`.')
+if (!secret || secret.length < 32) throw new Error('PAYLOAD_SECRET must be at least 32 characters. Run `pnpm run setup`.')
 const builderOrigin = process.env.BUILDER_ORIGIN ?? 'http://127.0.0.1:5173'
 
 export default buildConfig({
