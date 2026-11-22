@@ -5,8 +5,9 @@ import { responsiveStyleCss, safeUrl } from './schema'
 
 export type NodeEditProps = {
   selectedId?: string | null
+  selectedIds?: string[]
   editMode?: boolean
-  onSelect?: (id: string) => void
+  onSelect?: (id: string, additive?: boolean) => void
   onTextChange?: (id: string, text: string) => void
   pageSlugs?: string[]
 }
@@ -67,7 +68,7 @@ function safeStyle(node: BuilderNode): CSSProperties {
   return result
 }
 
-export function RenderNode({ node, selectedId, editMode = false, onSelect, onTextChange, pageSlugs = [] }: NodeEditProps & { node: BuilderNode }) {
+export function RenderNode({ node, selectedId, selectedIds, editMode = false, onSelect, onTextChange, pageSlugs = [] }: NodeEditProps & { node: BuilderNode }) {
   const tag = blockTags[node.type] ?? 'div'
   const Tag = tag as React.ElementType
   const mediaSrc = useAuthenticatedMediaUrl(node.props.src ? safeUrl(node.props.src, '') : '')
@@ -76,19 +77,20 @@ export function RenderNode({ node, selectedId, editMode = false, onSelect, onTex
   const href = safeUrl(node.props.href, '#')
   const isLocalPage = href.startsWith('/') && href !== '/' && !href.startsWith('//')
   const validPageLink = !isLocalPage || pageSlugs.length === 0 || pageSlugs.includes(href.replace(/^\//, ''))
+  const isSelected = selectedIds ? selectedIds.includes(node.id) : selectedId === node.id
   const common = {
     key: node.id,
-    className: `wc-node wc-${node.type}${selectedId === node.id ? ' is-selected' : ''}`,
+    className: `wc-node wc-${node.type}${isSelected ? ' is-selected' : ''}`,
     style: safeStyle(node),
     'data-node-id': node.id,
-    onPointerDown: editMode ? (event: React.PointerEvent) => { event.stopPropagation(); onSelect?.(node.id) } : undefined,
+    onPointerDown: editMode ? (event: React.PointerEvent) => { event.stopPropagation(); onSelect?.(node.id, event.shiftKey || event.metaKey || event.ctrlKey) } : undefined,
   }
   const contentProps = editable ? {
     contentEditable: editMode,
     suppressContentEditableWarning: true,
     onBlur: editMode ? (event: React.FocusEvent<HTMLElement>) => onTextChange?.(node.id, event.currentTarget.textContent ?? '') : undefined,
   } : {}
-  const children = node.children.map((child) => <RenderNode key={child.id} node={child} selectedId={selectedId} editMode={editMode} onSelect={onSelect} onTextChange={onTextChange} pageSlugs={pageSlugs} />)
+  const children = node.children.map((child) => <RenderNode key={child.id} node={child} selectedId={selectedId} selectedIds={selectedIds} editMode={editMode} onSelect={onSelect} onTextChange={onTextChange} pageSlugs={pageSlugs} />)
   if (node.type === 'image') return <img {...common} src={mediaSrc || undefined} alt={node.props.alt ?? ''} loading="lazy" />
   if (node.type === 'video') return <video {...common} src={mediaSrc || undefined} controls preload="metadata" />
   if (node.type === 'divider') return <hr {...common} />
