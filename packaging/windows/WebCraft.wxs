@@ -13,7 +13,9 @@
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="WebCraft" />
+      <Directory Id="INSTALLFOLDER" Name="WebCraft">
+        <Directory Id="LicenseFolder" Name="licenses" />
+      </Directory>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -44,8 +46,20 @@
   </Package>
 
   <Fragment>
-    <ComponentGroup Id="PayloadFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PayloadDir)\**" />
+    <ComponentGroup Id="PayloadFiles">
+      <Component Id="ApplicationPayload" Directory="INSTALLFOLDER" Guid="*">
+        <File Id="RuntimeArchive" Source="$(var.PayloadDir)\WebCraft-runtime-v$(var.ProductVersion).zip" KeyPath="yes" />
+        <File Id="StartCommand" Source="$(var.PayloadDir)\Start WebCraft.cmd" />
+        <File Id="PowerShellLauncher" Source="$(var.PayloadDir)\Start-WebCraft.ps1" />
+        <File Id="UserGuide" Source="$(var.PayloadDir)\README.txt" />
+        <File Id="ThirdPartyNotices" Source="$(var.PayloadDir)\THIRD-PARTY-NOTICES.txt" />
+      </Component>
+      <Component Id="LicensePayload" Directory="LicenseFolder" Guid="*">
+        <File Id="WebCraftLicense" Source="$(var.PayloadDir)\licenses\WebCraft-LICENSE.txt" KeyPath="yes" />
+        <File Id="NodeLicense" Source="$(var.PayloadDir)\licenses\Node-LICENSE.txt" />
+        <File Id="PostgreSqlLicense" Source="$(var.PayloadDir)\licenses\PostgreSQL-server_license.txt" />
+        <File Id="PostgreSqlToolsLicenses" Source="$(var.PayloadDir)\licenses\PostgreSQL-commandlinetools_3rd_party_licenses.txt" />
+      </Component>
     </ComponentGroup>
   </Fragment>
 </Wix>

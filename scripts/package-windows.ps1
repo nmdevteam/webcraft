@@ -2,11 +2,13 @@ param(
   [Parameter(Mandatory = $true)][string]$NodeArchivePath,
   [Parameter(Mandatory = $true)][string]$PostgresArchivePath,
   [Parameter(Mandatory = $true)][string]$OutputRoot,
-  [Parameter(Mandatory = $true)][string]$Version
+  [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'The Windows payload packager requires PowerShell 7 or later; run it through the GitHub Actions pwsh shell.' }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $NodeArchivePath = (Resolve-Path $NodeArchivePath).Path
@@ -43,6 +45,9 @@ $NodeRoot = $NodeExeSource.Directory.FullName
 $NodeVersionOutput = (& $NodeExeSource.FullName --version | Out-String).Trim()
 if ($NodeVersionOutput -ne 'v24.22.3') { throw "Expected bundled Node v24.22.3, received $NodeVersionOutput." }
 Copy-Item -LiteralPath $NodeExeSource.FullName -Destination (Join-Path $NodeDir 'node.exe')
+$NodeRuntimeFiles = @(Get-ChildItem -LiteralPath $NodeRoot -File | Where-Object { $_.Extension -ieq '.dll' -or $_.Name -ieq 'icudtl.dat' })
+if (-not ($NodeRuntimeFiles | Where-Object { $_.Extension -ieq '.dll' })) { throw 'The official Node.js archive has no root runtime DLLs.' }
+foreach ($RuntimeFile in $NodeRuntimeFiles) { Copy-Item -LiteralPath $RuntimeFile.FullName -Destination (Join-Path $NodeDir $RuntimeFile.Name) }
 $NodeLicenseSource = Join-Path $NodeRoot 'LICENSE'
 if (-not (Test-Path -LiteralPath $NodeLicenseSource)) { throw 'The Node.js license file is missing from its official archive.' }
 Copy-Item -LiteralPath $NodeLicenseSource -Destination (Join-Path $PayloadDir 'licenses\Node-LICENSE.txt')
@@ -90,9 +95,8 @@ foreach ($RequiredFile in $RequiredCmsFiles) {
 }
 $MigrationFiles = Get-ChildItem -LiteralPath (Join-Path $CmsDir 'src\migrations') -Filter '*.ts' -File -Recurse
 if (@($MigrationFiles).Count -eq 0) { throw 'The production CMS deployment has no database migration files.' }
-foreach ($EnvName in @('.env', '.env.local', '.env.production', '.env.development')) {
-  if (Test-Path -LiteralPath (Join-Path $CmsDir $EnvName)) { throw "Refusing to package a local environment file: $EnvName" }
-}
+$EnvironmentFiles = @(Get-ChildItem -LiteralPath $CmsDir -File -Recurse -Force | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
+if ($EnvironmentFiles.Count -gt 0) { throw "Refusing to package environment file(s): $($EnvironmentFiles.Name -join ', ')" }
 foreach ($CacheName in @('cache', 'dev', 'standalone')) {
   $CachePath = Join-Path $CmsDir ".next\$CacheName"
   if (Test-Path -LiteralPath $CachePath) { Remove-Item -LiteralPath $CachePath -Recurse -Force }
@@ -103,33 +107,57 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot 'apps\runtime\launcher.mjs') -Destin
 
 $Manifest = [ordered]@{ cmsDir = 'cms'; builderDir = 'builder' }
 $Manifest | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $RuntimeDir 'manifest.json') -Encoding utf8NoBOM
-$StartScript = @'
+$StartScript = @"
 @echo off
 setlocal
-"%~dp0runtime\node\node.exe" "%~dp0runtime\launcher.mjs"
-endlocal
-'@
+if not defined WEBCRAFT_DATA_DIR set "WEBCRAFT_DATA_DIR=%LOCALAPPDATA%\WebCraft"
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Start-WebCraft.ps1" -ArchivePath "%~dp0WebCraft-runtime-v$Version.zip" -RuntimeVersion "$Version"
+exit /b %errorlevel%
+"@
 Set-Content -LiteralPath (Join-Path $PayloadDir 'Start WebCraft.cmd') -Value $StartScript -Encoding ascii
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'packaging\windows\Start-WebCraft.ps1') -Destination (Join-Path $PayloadDir 'Start-WebCraft.ps1')
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'packaging\windows\README.txt') -Destination (Join-Path $PayloadDir 'README.txt')
-if (Test-Path -LiteralPath (Join-Path $RepoRoot 'LICENSE')) {
-  Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination (Join-Path $PayloadDir 'licenses\WebCraft-LICENSE.txt')
-}
+$WebCraftLicenseSource = Join-Path $RepoRoot 'LICENSE'
+if (-not (Test-Path -LiteralPath $WebCraftLicenseSource -PathType Leaf)) { throw 'The WebCraft LICENSE file is required by the MSI and is missing from the repository.' }
+Copy-Item -LiteralPath $WebCraftLicenseSource -Destination (Join-Path $PayloadDir 'licenses\WebCraft-LICENSE.txt')
 $Notices = @"
 WebCraft $Version — bundled software notices
 
-Node.js v24.22.3 is bundled from the official Windows x64 archive. Its upstream license is included at licenses\Node-LICENSE.txt.
+Node.js v24.22.3 is bundled from the official Windows x64 archive. Its upstream license is included at licenses\Node-LICENSE.txt; the required Node runtime DLLs and ICU data are in the runtime archive.
 
-PostgreSQL 17.12 Windows x64 binaries from EDB are bundled for local-only database use. The PostgreSQL server license and the command-line tools' third-party license notices are included at licenses\PostgreSQL-server_license.txt and licenses\PostgreSQL-commandlinetools_3rd_party_licenses.txt. PostgreSQL runtime files and the EDB archive's Visual C++ runtime DLLs are included under runtime\postgres.
+PostgreSQL 17.12 Windows x64 binaries from EDB are bundled for local-only database use. The PostgreSQL server license and the command-line tools' third-party license notices are included at licenses\PostgreSQL-server_license.txt and licenses\PostgreSQL-commandlinetools_3rd_party_licenses.txt. PostgreSQL runtime files and the EDB archive's Visual C++ runtime DLLs are included in the runtime archive.
 
-The EDB archive's VCRUNTIME140.dll and VCRUNTIME140_1.dll are included under runtime\postgres\bin for the bundled PostgreSQL executables. Microsoft runtime information: https://www.microsoft.com/en-us/download/details.aspx?id=48145.
+The EDB archive's VCRUNTIME140.dll and VCRUNTIME140_1.dll are included with the bundled PostgreSQL executables. Microsoft runtime information: https://www.microsoft.com/en-us/download/details.aspx?id=48145.
 
-The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under runtime\cms\node_modules. WebCraft's own license, if present in the source repository, is included at licenses\WebCraft-LICENSE.txt.
+The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under cms\node_modules inside the runtime archive. WebCraft's own license, if present in the source repository, is included at licenses\WebCraft-LICENSE.txt.
 
 WiX Toolset is used only to build the MSI in CI; it is not bundled or installed with WebCraft.
 "@
 Set-Content -LiteralPath (Join-Path $PayloadDir 'THIRD-PARTY-NOTICES.txt') -Value $Notices -Encoding utf8
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$RuntimeArchivePath = Join-Path $PayloadDir "WebCraft-runtime-v$Version.zip"
+[System.IO.Compression.ZipFile]::CreateFromDirectory($RuntimeDir, $RuntimeArchivePath, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+$RuntimeArchiveInfo = Get-Item -LiteralPath $RuntimeArchivePath
+if ($RuntimeArchiveInfo.Length -gt 1.5GB) { throw 'The runtime ZIP exceeds the 1.5 GiB package safety ceiling; reduce the payload before building this MSI.' }
+$RuntimeArchive = [System.IO.Compression.ZipFile]::OpenRead($RuntimeArchivePath)
+try {
+  $Entries = $RuntimeArchive.Entries
+  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'node/node.exe', 'node/libcrypto-3-x64.dll', 'postgres/bin/initdb.exe', 'cms/.next/BUILD_ID', 'builder/index.html')
+  foreach ($RequiredEntry in $RequiredEntries) {
+    if (-not ($Entries | Where-Object { $_.FullName -ceq $RequiredEntry })) { throw "Runtime ZIP is missing required entry: $RequiredEntry" }
+  }
+  if (-not ($Entries | Where-Object { $_.FullName -like 'cms/src/migrations/*.ts' })) { throw 'Runtime ZIP contains no CMS database migrations.' }
+  $PackedEnvironmentFiles = @($Entries | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
+  if ($PackedEnvironmentFiles.Count -gt 0) { throw "Refusing to package environment file(s): $($PackedEnvironmentFiles.FullName -join ', ')" }
+  Write-Output "Verified runtime ZIP entries: $($Entries.Count)"
+} finally {
+  $RuntimeArchive.Dispose()
+}
+Remove-Item -LiteralPath $RuntimeDir -Recurse -Force
 Remove-Item -LiteralPath $ExtractDir -Recurse -Force
 
 Write-Output "Windows payload assembled at: $PayloadDir"
+Write-Output "Runtime archive: $RuntimeArchivePath ($([math]::Round($RuntimeArchiveInfo.Length / 1MB, 1)) MiB)"
 Write-Output "Node: $NodeVersionOutput"
 Write-Output "PostgreSQL: $PostgresVersionOutput"

@@ -115,13 +115,15 @@ jobs:
           if ($WixVersion -notmatch '^5\.0\.2') { throw "Expected pinned WiX 5.0.2, received $WixVersion." }
           & $Wix build -arch x64 packaging/windows/WebCraft.wxs -d "PayloadDir=$env:WEBCRAFT_PAYLOAD" -d 'ProductVersion=0.1.1' -o $env:WEBCRAFT_MSI
           if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed with exit code $LASTEXITCODE." }
+          $MsiInfo = Get-Item -LiteralPath $env:WEBCRAFT_MSI
+          if ($MsiInfo.Length -gt 1.75GB) { throw 'The MSI exceeds the 1.75 GiB package safety ceiling.' }
           $MsiHash = (Get-FileHash -LiteralPath $env:WEBCRAFT_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output "Created $env:WEBCRAFT_MSI (SHA-256 $MsiHash)"
+          Write-Output "Created $env:WEBCRAFT_MSI ($([math]::Round($MsiInfo.Length / 1MB, 1)) MiB; SHA-256 $MsiHash)"
           "Installer SHA-256: ``$MsiHash``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Install MSI and run Windows/PostgreSQL smoke test
         shell: pwsh
-        run: ./packaging/windows/smoke-test.ps1 -MsiPath $env:WEBCRAFT_MSI
+        run: ./packaging/windows/smoke-test.ps1 -MsiPath $env:WEBCRAFT_MSI -RuntimeVersion '0.1.1'
 
       - name: Upload tested MSI as a workflow artifact (not a GitHub Release)
         uses: actions/upload-artifact@v4
