@@ -7,7 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $MsiPath = (Resolve-Path $MsiPath).Path
-$DataDir = Join-Path $env:RUNNER_TEMP ("webcraft-smoke-" + [guid]::NewGuid().ToString('N'))
+do { $DataDir = Join-Path $env:RUNNER_TEMP ("wc-" + [guid]::NewGuid().ToString('N').Substring(0, 12)) } while (Test-Path -LiteralPath $DataDir)
 $RuntimeDir = Join-Path $DataDir "runtime-$RuntimeVersion"
 $StdoutLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stdout.log'
 $StderrLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stderr.log'
@@ -52,6 +52,28 @@ function Get-Diagnostics {
   return ($Parts -join "`n")
 }
 
+function Assert-DefaultRuntimePathBudget {
+  param([Parameter(Mandatory = $true)][string]$ArchivePath, [Parameter(Mandatory = $true)][string]$Version)
+  $DefaultDataRoot = Join-Path $env:LOCALAPPDATA 'WebCraft'
+  $DefaultStagingRoot = Join-Path $DefaultDataRoot ".tmp-$Version"
+  $DefaultRuntimeRoot = Join-Path $DefaultDataRoot "runtime-$Version"
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $Archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+  try {
+    foreach ($Entry in $Archive.Entries) {
+      $EntryName = $Entry.FullName.Replace('/', '\')
+      $StagingPath = Join-Path $DefaultStagingRoot $EntryName
+      $RuntimePath = Join-Path $DefaultRuntimeRoot $EntryName
+      if ($StagingPath.Length -ge 240 -or $RuntimePath.Length -ge 240) {
+        $PathLength = [math]::Max($StagingPath.Length, $RuntimePath.Length)
+        throw "The packaged runtime entry '$($Entry.FullName)' needs a $PathLength-character path beneath the default %LOCALAPPDATA%\WebCraft cache."
+      }
+    }
+  } finally {
+    $Archive.Dispose()
+  }
+}
+
 function Stop-WebCraft {
   if ($null -ne $LauncherProcess -and -not $LauncherProcess.HasExited) {
     & taskkill.exe /PID $LauncherProcess.Id /T /F 2>$null | Out-Null
@@ -92,6 +114,7 @@ try {
   if (Test-Path -LiteralPath $RuntimeDir) { throw 'The per-user runtime cache already exists before the first application launch.' }
   $StartMenuShortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\WebCraft\WebCraft.lnk'
   if (-not (Test-Path -LiteralPath $StartMenuShortcut)) { throw "The WebCraft Start menu shortcut was not installed: $StartMenuShortcut" }
+  Assert-DefaultRuntimePathBudget -ArchivePath (Join-Path $InstallDir 'WebCraft-runtime.zip') -Version $RuntimeVersion
 
   $EnvValues = @{
     WEBCRAFT_DATA_DIR = $DataDir

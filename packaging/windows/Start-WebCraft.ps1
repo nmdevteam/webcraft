@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
 $ArchivePath = (Resolve-Path -LiteralPath $ArchivePath).Path
 $RuntimeRoot = Join-Path $DataRoot "runtime-$RuntimeVersion"
 $LockPath = Join-Path $DataRoot ".webcraft-runtime-$RuntimeVersion.lock"
-$StagingPath = Join-Path $DataRoot ".webcraft-runtime-$RuntimeVersion.tmp"
+$StagingPath = Join-Path $DataRoot ".tmp-$RuntimeVersion"
 $Deadline = [DateTime]::UtcNow.AddMinutes(15)
 $LockStream = $null
 
@@ -69,8 +69,10 @@ try {
               throw "The WebCraft runtime archive contains an unsafe path: $($Entry.FullName)"
             }
             $DestinationPath = Join-Path $StagingPath ($EntryName.Replace('/', '\'))
-            if ($DestinationPath.Length -ge 240) {
-              throw 'A WebCraft runtime path is too long for reliable Windows extraction. Set WEBCRAFT_DATA_DIR to a shorter local folder and try again.'
+            $RuntimePath = Join-Path $RuntimeRoot ($EntryName.Replace('/', '\'))
+            if ($DestinationPath.Length -ge 240 -or $RuntimePath.Length -ge 240) {
+              $PathLength = [math]::Max($DestinationPath.Length, $RuntimePath.Length)
+              throw "The WebCraft runtime entry '$EntryName' would use a $PathLength-character Windows path. Set WEBCRAFT_DATA_DIR to a shorter local folder and try again."
             }
           }
         } finally {
