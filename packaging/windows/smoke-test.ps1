@@ -79,7 +79,7 @@ try {
   foreach ($RequiredPath in @(
     (Join-Path $InstallDir 'Start WebCraft.cmd'),
     (Join-Path $InstallDir 'Start-WebCraft.ps1'),
-    (Join-Path $InstallDir "WebCraft-runtime-v$RuntimeVersion.zip"),
+    (Join-Path $InstallDir 'WebCraft-runtime.zip'),
     (Join-Path $InstallDir 'README.txt'),
     (Join-Path $InstallDir 'THIRD-PARTY-NOTICES.txt'),
     (Join-Path $InstallDir 'licenses\WebCraft-LICENSE.txt'),

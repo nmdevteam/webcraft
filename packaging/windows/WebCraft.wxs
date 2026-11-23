@@ -47,14 +47,14 @@
 
   <Fragment>
     <ComponentGroup Id="PayloadFiles">
-      <Component Id="ApplicationPayload" Directory="INSTALLFOLDER" Guid="*">
-        <File Id="RuntimeArchive" Source="$(var.PayloadDir)\WebCraft-runtime-v$(var.ProductVersion).zip" KeyPath="yes" />
+      <Component Id="ApplicationPayload" Directory="INSTALLFOLDER" Guid="{13B76331-94C5-41A9-AFAE-F1AB10FC4815}">
+        <File Id="RuntimeArchive" Source="$(var.PayloadDir)\WebCraft-runtime.zip" KeyPath="yes" />
         <File Id="StartCommand" Source="$(var.PayloadDir)\Start WebCraft.cmd" />
         <File Id="PowerShellLauncher" Source="$(var.PayloadDir)\Start-WebCraft.ps1" />
         <File Id="UserGuide" Source="$(var.PayloadDir)\README.txt" />
         <File Id="ThirdPartyNotices" Source="$(var.PayloadDir)\THIRD-PARTY-NOTICES.txt" />
       </Component>
-      <Component Id="LicensePayload" Directory="LicenseFolder" Guid="*">
+      <Component Id="LicensePayload" Directory="LicenseFolder" Guid="{F7E958A9-DE79-4F11-9D0B-4A4E43A1A0F2}">
         <File Id="WebCraftLicense" Source="$(var.PayloadDir)\licenses\WebCraft-LICENSE.txt" KeyPath="yes" />
         <File Id="NodeLicense" Source="$(var.PayloadDir)\licenses\Node-LICENSE.txt" />
         <File Id="PostgreSqlLicense" Source="$(var.PayloadDir)\licenses\PostgreSQL-server_license.txt" />

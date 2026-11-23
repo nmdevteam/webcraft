@@ -108,7 +108,7 @@ $StartScript = @"
 @echo off
 setlocal
 if not defined WEBCRAFT_DATA_DIR set "WEBCRAFT_DATA_DIR=%LOCALAPPDATA%\WebCraft"
-powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Start-WebCraft.ps1" -ArchivePath "%~dp0WebCraft-runtime-v$Version.zip" -RuntimeVersion "$Version"
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Start-WebCraft.ps1" -ArchivePath "%~dp0WebCraft-runtime.zip" -RuntimeVersion "$Version"
 exit /b %errorlevel%
 "@
 Set-Content -LiteralPath (Join-Path $PayloadDir 'Start WebCraft.cmd') -Value $StartScript -Encoding ascii
@@ -133,7 +133,7 @@ WiX Toolset is used only to build the MSI in CI; it is not bundled or installed 
 Set-Content -LiteralPath (Join-Path $PayloadDir 'THIRD-PARTY-NOTICES.txt') -Value $Notices -Encoding utf8
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$RuntimeArchivePath = Join-Path $PayloadDir "WebCraft-runtime-v$Version.zip"
+$RuntimeArchivePath = Join-Path $PayloadDir 'WebCraft-runtime.zip'
 [System.IO.Compression.ZipFile]::CreateFromDirectory($RuntimeDir, $RuntimeArchivePath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 $RuntimeArchiveInfo = Get-Item -LiteralPath $RuntimeArchivePath
 Write-Output "Runtime archive size: $([math]::Round($RuntimeArchiveInfo.Length / 1GB, 3)) GiB"
