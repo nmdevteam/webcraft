@@ -3,17 +3,18 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import sharp, { type Metadata } from 'sharp'
 import { PwaSettingsSchema } from '@webcraft/core/pwa'
+import { getMediaStorageRoot, sameResolvedPath } from './storage-paths'
 
 export const MAX_PRIVATE_MEDIA_BYTES = 5 * 1024 * 1024
 const SAFE_MEDIA_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(png|jpe?g|webp|gif)$/i
 
 export type ProjectMediaRecord = { filename?: unknown }
 
-export async function readPrivateMediaBuffer(filename: string, mediaRoot = resolve(process.cwd(), '.webcraft/media')): Promise<Buffer> {
+export async function readPrivateMediaBuffer(filename: string, mediaRoot = getMediaStorageRoot()): Promise<Buffer> {
   if (basename(filename) !== filename || !SAFE_MEDIA_FILENAME.test(filename)) throw new Error('An uploaded asset has an unsafe filename.')
   mediaRoot = resolve(/*turbopackIgnore: true*/ mediaRoot)
   const rootStat = await lstat(mediaRoot)
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || await realpath(/*turbopackIgnore: true*/ mediaRoot) !== mediaRoot) {
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || !sameResolvedPath(await realpath(/*turbopackIgnore: true*/ mediaRoot), mediaRoot)) {
     throw new Error('The uploaded asset storage directory is not safe.')
   }
   const path = resolve(mediaRoot, filename)
@@ -34,7 +35,7 @@ export async function readPrivateMediaBuffer(filename: string, mediaRoot = resol
 export async function validatePwaIconDimensions(
   value: unknown,
   assets: readonly ProjectMediaRecord[],
-  mediaRoot = resolve(process.cwd(), '.webcraft/media'),
+  mediaRoot = getMediaStorageRoot(),
 ): Promise<void> {
   const settings = PwaSettingsSchema.parse(value ?? {})
   const selections = [

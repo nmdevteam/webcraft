@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 
 const cwd = process.cwd()
 const legacyDir = resolve(cwd, 'public/media')
-const storageRoot = resolve(cwd, '.webcraft')
+const storageRoot = process.env.WEBCRAFT_DATA_DIR ? resolve(process.env.WEBCRAFT_DATA_DIR) : resolve(cwd, '.webcraft')
 const privateDir = resolve(storageRoot, 'media')
 
 async function ensureDirectory(path, label) {
@@ -19,7 +19,7 @@ async function ensureDirectory(path, label) {
 
 await ensureDirectory(storageRoot, 'Private storage root')
 await ensureDirectory(privateDir, 'Private media directory')
-await chmod(privateDir, 0o700)
+if (process.platform !== 'win32') await chmod(privateDir, 0o700)
 
 let legacyInfo
 try {

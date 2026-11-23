@@ -56,6 +56,18 @@ export default buildConfig({
   }),
   collections: [Users, Projects, Pages, AssetFolders, Assets, ProjectVersions, MarketplacePackages, MarketplaceFavorites, InstalledComponents],
   upload: { requestSizeLimit: 6 * 1024 * 1024, limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 4, fieldSize: 16 * 1024, parts: 5 } },
+  endpoints: [{
+    path: '/webcraft-health',
+    method: 'get',
+    handler: async (req) => {
+      try {
+        await req.payload.db.drizzle.execute(sql`SELECT 1`)
+        return Response.json({ status: 'ok', database: 'ok' }, { headers: { 'Cache-Control': 'no-store' } })
+      } catch {
+        return Response.json({ status: 'error', database: 'unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+      }
+    },
+  }],
   cors: [builderOrigin],
   csrf: [builderOrigin],
   typescript: { outputFile: 'src/payload-types.ts' },

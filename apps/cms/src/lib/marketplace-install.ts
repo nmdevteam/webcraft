@@ -3,8 +3,9 @@ import { unlink } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type { MarketplaceAsset } from '@webcraft/core/marketplace'
 import { MarketplaceApiError } from './marketplace-route'
+import { getMediaStorageRoot, isPathWithin } from './storage-paths'
 
-const mediaRoot = resolve(process.cwd(), '.webcraft/media')
+const mediaRoot = getMediaStorageRoot()
 const safeFilename = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(?:png|jpe?g|webp|gif)$/i
 
 function validateImage(buffer: Buffer, asset: MarketplaceAsset) {
@@ -50,7 +51,7 @@ export async function createProjectAssets(payload: any, user: any, projectId: st
       if (buffer.byteLength < 1 || buffer.byteLength > 5 * 1024 * 1024 || buffer.toString('base64') !== asset.contentBase64) throw new MarketplaceApiError('A package image has invalid or oversized base64 data.')
       validateImage(buffer, asset)
       const filePath = resolve(mediaRoot, filename)
-      if (!filePath.startsWith(`${mediaRoot}/`)) throw new MarketplaceApiError('A package image path is invalid.')
+      if (!isPathWithin(mediaRoot, filePath)) throw new MarketplaceApiError('A package image path is invalid.')
       created.push({ filename })
       const file = { name: filename, data: buffer, mimetype: asset.mimeType, size: buffer.byteLength }
       const doc = await payload.create({
@@ -75,7 +76,7 @@ export async function removeCreatedAssetFiles(items: CreatedMarketplaceAsset[]) 
     for (const name of [item.filename, item.thumbnailFilename].filter(Boolean) as string[]) {
       if (!safeFilename.test(name) || basename(name) !== name) continue
       const path = resolve(mediaRoot, name)
-      if (path.startsWith(`${mediaRoot}/`)) await unlink(path).catch(() => undefined)
+      if (isPathWithin(mediaRoot, path)) await unlink(path).catch(() => undefined)
     }
   }
 }

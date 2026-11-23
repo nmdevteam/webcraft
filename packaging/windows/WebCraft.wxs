@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="WebCraft"
+    Manufacturer="NM Developers"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{B6BD78D6-EB7B-4F88-A4B8-116719B11982}"
+    Scope="perMachine"
+    Platform="x64"
+    InstallerVersion="500">
+    <SummaryInformation Description="WebCraft local website builder" Manufacturer="NM Developers" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of WebCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="WebCraft" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="WebCraft">
+        <Component Id="StartMenuShortcut" Guid="*">
+          <Shortcut
+            Id="StartWebCraftShortcut"
+            Name="WebCraft"
+            Description="Start the local WebCraft website builder"
+            Target="[INSTALLFOLDER]Start WebCraft.cmd"
+            WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\NM Developers\WebCraft"
+            Name="Installed"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="WebCraftFeature" Title="WebCraft" Level="1">
+      <ComponentGroupRef Id="PayloadFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="PayloadFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

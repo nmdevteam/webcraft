@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { resolve } from 'node:path'
+import { getMediaStorageRoot } from '../lib/storage-paths'
 
 function relatedId(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
@@ -10,7 +10,7 @@ function relatedId(value: unknown): string {
 export const Assets: CollectionConfig = {
   slug: 'assets',
   upload: {
-    staticDir: resolve(process.cwd(), '.webcraft/media'),
+    staticDir: getMediaStorageRoot(),
     mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     filesRequiredOnCreate: true,
     imageSizes: [{ name: 'thumbnail', width: 360, height: 240 }],

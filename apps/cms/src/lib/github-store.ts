@@ -1,13 +1,13 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { getGitHubStoreDir, getGitHubStorePath } from './storage-paths'
 
 type V1Stored = { login: string; iv: string; tag: string; ciphertext: string }
 type V2Stored = { version: 2; login: string; salt: string; iv: string; tag: string; ciphertext: string }
 type Stored = V1Stored | V2Stored
 
-const storeDir = resolve(process.cwd(), '../../.webcraft')
-const storePath = resolve(storeDir, 'github-token.enc')
+const storeDir = getGitHubStoreDir()
+const storePath = getGitHubStorePath()
 const V1_SALT = 'webcraft-github-token-v1'
 const MAX_RECORD_BYTES = 1_000_000
 const MAX_LOGIN_LENGTH = 100
@@ -79,7 +79,7 @@ function decrypt(record: Stored): string {
 
 function atomicWrite(content: string) {
   mkdirSync(storeDir, { recursive: true, mode: 0o700 })
-  chmodSync(storeDir, 0o700)
+  if (process.platform !== 'win32') chmodSync(storeDir, 0o700)
   const temp = `${storePath}.${process.pid}.${randomBytes(16).toString('hex')}.tmp`
   let fd: number | undefined
   try {
@@ -88,9 +88,9 @@ function atomicWrite(content: string) {
     fsyncSync(fd)
     closeSync(fd)
     fd = undefined
-    chmodSync(temp, 0o600)
+    if (process.platform !== 'win32') chmodSync(temp, 0o600)
     renameSync(temp, storePath)
-    chmodSync(storePath, 0o600)
+    if (process.platform !== 'win32') chmodSync(storePath, 0o600)
   } finally {
     if (fd !== undefined) closeSync(fd)
     if (existsSync(temp)) unlinkSync(temp)
@@ -114,7 +114,7 @@ export function readGitHubToken(): { token: string; login: string } | null {
   let record: Stored
   try {
     const file = readFileSync(storePath, 'utf8')
-    if ((statSync(storePath).mode & 0o777) !== 0o600) chmodSync(storePath, 0o600)
+    if (process.platform !== 'win32' && (statSync(storePath).mode & 0o777) !== 0o600) chmodSync(storePath, 0o600)
     record = parseRecord(file)
     const token = decrypt(record)
     if (!('version' in record)) saveGitHubToken(token, record.login)

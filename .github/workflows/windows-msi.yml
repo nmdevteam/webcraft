@@ -1,0 +1,132 @@
+name: Windows MSI
+
+on:
+  push:
+    branches:
+      - packaging/windows-msi
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-msi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke-test:
+    name: Build and smoke-test WebCraft v0.1.1 MSI
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      PAYLOAD_SECRET: ci-only-not-a-user-secret-webcraft-build-2026
+      WEBCRAFT_SECRET: ci-only-not-a-user-secret-webcraft-build-2026
+      DATABASE_URL: postgres://webcraft:ci-only-password@127.0.0.1:5432/webcraft
+      CMS_URL: http://127.0.0.1:3000
+      BUILDER_ORIGIN: http://127.0.0.1:5173
+      POSTGRES_ARCHIVE_URL: https://sbp.enterprisedb.com/getfile.jsp?fileid=1260667
+    steps:
+      - name: Check out packaging branch
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.3
+          cache: pnpm
+
+      - name: Set up .NET SDK for WiX
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        shell: pwsh
+
+      - name: Unit and runtime tests
+        run: pnpm test
+        shell: pwsh
+
+      - name: Typecheck
+        run: pnpm typecheck
+        shell: pwsh
+
+      - name: Production dependency audit
+        run: pnpm run security:audit
+        shell: pwsh
+
+      - name: Build production CMS and builder without reading local environment files
+        run: pnpm run build:packaged
+        shell: pwsh
+
+      - name: Download and verify pinned runtimes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $NodeArchive = Join-Path $env:RUNNER_TEMP 'node-v24.22.3-win-x64.zip'
+          $PostgresArchive = Join-Path $env:RUNNER_TEMP 'postgresql-17.12-win-x64.zip'
+          Invoke-WebRequest -Uri 'https://nodejs.org/dist/v24.22.3/node-v24.22.3-win-x64.zip' -OutFile $NodeArchive
+          $ExpectedNodeHash = 'e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f'
+          $ChecksumLines = (Invoke-WebRequest -Uri 'https://nodejs.org/dist/v24.22.3/SHASUMS256.txt').Content -split "`n"
+          $ChecksumLine = $ChecksumLines | Where-Object { $_ -match '\snode-v24\.22\.3-win-x64\.zip\s*$' } | Select-Object -First 1
+          if (-not $ChecksumLine) { throw 'Node.js official SHASUMS256.txt did not include the pinned Windows archive.' }
+          $PublishedNodeHash = ($ChecksumLine.Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($PublishedNodeHash -ne $ExpectedNodeHash) { throw "Pinned Node.js digest differs from the official checksum file: $PublishedNodeHash." }
+          $ActualNodeHash = (Get-FileHash -LiteralPath $NodeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($ActualNodeHash -ne $ExpectedNodeHash) { throw "Node.js archive SHA-256 mismatch: expected $ExpectedNodeHash, received $ActualNodeHash." }
+          Write-Output "Verified Node.js v24.22.3 Windows archive SHA-256: $ActualNodeHash"
+          & curl.exe --fail --location --retry 3 --retry-all-errors --connect-timeout 30 --output $PostgresArchive $env:POSTGRES_ARCHIVE_URL
+          if ($LASTEXITCODE -ne 0) { throw "EDB PostgreSQL archive download failed with exit code $LASTEXITCODE." }
+          $PostgresHash = (Get-FileHash -LiteralPath $PostgresArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $ExpectedPostgresHash = 'a2cd8a774389347b70be7748ac4a37ef43cb6ee539c5fc3e85ae264b15e4a04c'
+          if ($PostgresHash -ne $ExpectedPostgresHash) { throw "Pinned EDB PostgreSQL archive SHA-256 mismatch: expected $ExpectedPostgresHash, received $PostgresHash." }
+          Write-Output "Verified pinned EDB PostgreSQL 17.12 archive SHA-256 (EDB publishes no expected digest): $PostgresHash"
+          "PostgreSQL 17.12 archive SHA-256: ``$PostgresHash`` (pinned from the official EDB archive; EDB publishes no expected checksum)." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "NODE_ARCHIVE=$NodeArchive" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "POSTGRES_ARCHIVE=$PostgresArchive" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Assemble per-user-data Windows payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PackageRoot = Join-Path $env:RUNNER_TEMP 'webcraft-windows-package'
+          ./scripts/package-windows.ps1 -NodeArchivePath $env:NODE_ARCHIVE -PostgresArchivePath $env:POSTGRES_ARCHIVE -OutputRoot $PackageRoot -Version '0.1.1'
+          "WEBCRAFT_PAYLOAD=$PackageRoot\payload" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WEBCRAFT_MSI=$env:RUNNER_TEMP\WebCraft-v0.1.1-x64.msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Remove-Item -LiteralPath $env:NODE_ARCHIVE, $env:POSTGRES_ARCHIVE -Force
+
+      # WiX 5.0.2 is pinned to avoid implicitly accepting WiX 7's EULA/OSMF terms.
+      # It is out of community support; revisit the compiler choice before future packaging updates.
+      - name: Install pinned WiX compiler and build MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $WixTools = Join-Path $env:RUNNER_TEMP 'wix-tools'
+          dotnet tool install wix --version 5.0.2 --tool-path $WixTools --source 'https://api.nuget.org/v3/index.json'
+          if ($LASTEXITCODE -ne 0) { throw "WiX installation failed with exit code $LASTEXITCODE." }
+          $Wix = Join-Path $WixTools 'wix.exe'
+          $WixVersion = (& $Wix --version | Out-String).Trim()
+          if ($WixVersion -notmatch '^5\.0\.2') { throw "Expected pinned WiX 5.0.2, received $WixVersion." }
+          & $Wix build packaging/windows/WebCraft.wxs -d "PayloadDir=$env:WEBCRAFT_PAYLOAD" -d 'ProductVersion=0.1.1' -o $env:WEBCRAFT_MSI
+          if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed with exit code $LASTEXITCODE." }
+          $MsiHash = (Get-FileHash -LiteralPath $env:WEBCRAFT_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output "Created $env:WEBCRAFT_MSI (SHA-256 $MsiHash)"
+          "Installer SHA-256: ``$MsiHash``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Install MSI and run Windows/PostgreSQL smoke test
+        shell: pwsh
+        run: ./packaging/windows/smoke-test.ps1 -MsiPath $env:WEBCRAFT_MSI
+
+      - name: Upload tested MSI as a workflow artifact (not a GitHub Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: webcraft-windows-msi-v0.1.1
+          path: ${{ runner.temp }}/WebCraft-v0.1.1-x64.msi
+          if-no-files-found: error
+          retention-days: 30

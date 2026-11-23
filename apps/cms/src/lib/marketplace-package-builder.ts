@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { ComponentPackageSchema, MarketplacePackageSchema, referencedMediaFilenames, TemplatePackageSchema, type MarketplaceAsset } from '@webcraft/core/marketplace'
 import { ProjectSettingsSchema, validateTree } from '@webcraft/core/schema'
 import { MarketplaceApiError } from './marketplace-route'
+import { getMediaStorageRoot, isPathWithin } from './storage-paths'
 
 const MAX_PACKAGE_ASSETS = 5 * 1024 * 1024
 const safeFilename = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(?:png|jpe?g|webp|gif)$/i
@@ -34,7 +35,7 @@ async function packageAssets(payload: any, user: any, projectId: string, referen
   if (Number(records.totalDocs ?? records.docs.length) > 100) throw new MarketplaceApiError('Packages can use assets from projects with at most 100 uploaded files.')
   const byFilename = new Map<string, any>()
   for (const record of records.docs as any[]) byFilename.set(String(record.filename ?? ''), record)
-  const mediaRoot = resolve(process.cwd(), '.webcraft/media')
+  const mediaRoot = getMediaStorageRoot()
   const assets: MarketplaceAsset[] = []
   let totalBytes = 0
   for (const filename of references) {
@@ -42,7 +43,7 @@ async function packageAssets(payload: any, user: any, projectId: string, referen
     const record = byFilename.get(filename)
     if (!record) throw new MarketplaceApiError(`Referenced image “${filename}” is not owned by this project.`)
     const filePath = resolve(mediaRoot, filename)
-    if (!filePath.startsWith(`${mediaRoot}/`)) throw new MarketplaceApiError('A project image path is invalid.')
+    if (!isPathWithin(mediaRoot, filePath)) throw new MarketplaceApiError('A project image path is invalid.')
     const buffer = await readFile(filePath)
     if (buffer.byteLength > 5 * 1024 * 1024) throw new MarketplaceApiError('A project image exceeds the 5 MB package limit.')
     totalBytes += buffer.byteLength
