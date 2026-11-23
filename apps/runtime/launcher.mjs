@@ -209,7 +209,7 @@ async function setUpPostgres(config, dataRoot, logsDir) {
   const psqlEnv = { ...pgCtlEnv, PGPASSWORD: config.databasePassword }
   const databaseExists = await runCommand(psql, ['-X', '-A', '-t', '-w', '-h', PUBLIC_HOST, '-p', String(config.ports.database), '-U', DB_USER, '-d', 'postgres', '-c', `SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'`], { cwd: dataRoot, env: psqlEnv, timeoutMs: 30_000 }).then(({ stdout }) => stdout.trim() === '1', () => false)
   if (!databaseExists) {
-    await runChecked(createdb, ['-w', '-h', PUBLIC_HOST, '-p', String(config.ports.database), '-U', DB_USER, DB_NAME], { cwd: dataRoot, env: psqlEnv, timeoutMs: 30_000, logPath: pgLog })
+    await runChecked(createdb, ['-w', '-h', PUBLIC_HOST, '-p', String(config.ports.database), '-U', DB_USER, DB_NAME], { cwd: dataRoot, env: psqlEnv, timeoutMs: 30_000, logPath: pgCtlLog })
   }
   return { pgData, pgLog, pgCtlEnv }
 }
@@ -301,7 +301,7 @@ async function main() {
         }
       }
       if (pgData && pgCtlEnv) {
-        await runCommand(pgCtl, ['-D', pgData, '-m', 'fast', '-w', 'stop'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 45_000, logPath: resolve(logsDir, 'postgres.log') }).catch(() => undefined)
+        await runCommand(pgCtl, ['-D', pgData, '-m', 'fast', '-w', 'stop'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 45_000, logPath: resolve(logsDir, 'postgres-control.log') }).catch(() => undefined)
       }
       const lockPid = Number.parseInt(await readFile(lockPath, 'utf8').catch(() => ''), 10)
       if (lockPid === process.pid) await unlink(lockPath).catch(() => undefined)
@@ -320,20 +320,24 @@ async function main() {
     config = await choosePorts(config, configState.path, dataRoot, priorPgStatus)
     pgData = resolve(dataRoot, 'postgres')
     pgCtlEnv = { PATH: `${postgresBin}${process.env.PATH ? `;${process.env.PATH}` : ''}` }
+    console.log('Preparing the local PostgreSQL database...')
     const db = await setUpPostgres(config, dataRoot, logsDir)
     pgData = db.pgData
     pgCtlEnv = db.pgCtlEnv
     const cmsEnv = makeCmsEnv(config, dataRoot, config.ports.cms, config.ports.app)
 
+    console.log('Applying WebCraft database migrations...')
     await runChecked(nodeExe, [resolve(cmsDir, 'node_modules/payload/bin.js'), 'migrate'], { cwd: cmsDir, env: cmsEnv, timeoutMs: 180_000, logPath: resolve(logsDir, 'migrations.log') })
     await runChecked(nodeExe, [resolve(cmsDir, 'scripts/migrate-media.mjs')], { cwd: cmsDir, env: cmsEnv, timeoutMs: 30_000, logPath: resolve(logsDir, 'media-migration.log') })
 
+    console.log('Starting the local WebCraft CMS...')
     cmsChild = startChild(nodeExe, [nextCli, 'start', '--hostname', PUBLIC_HOST, '--port', String(config.ports.cms)], { cwd: cmsDir, env: cmsEnv, logPath: resolve(logsDir, 'cms.log') })
     cmsChild.once('error', () => { void cleanup(1) })
     cmsChild.once('close', (code) => { if (!isStopping) { console.error(`The local CMS stopped (exit ${code ?? 'unknown'}). Check ${resolve(logsDir, 'cms.log')}.`); void cleanup(code || 1) } })
     const cmsOrigin = `http://${PUBLIC_HOST}:${config.ports.cms}`
     await waitForHealth(`${cmsOrigin}/api/health`, cmsChild)
 
+    console.log('The CMS is ready; starting the WebCraft builder...')
     appServer = await createWebCraftServer({ builderDir, cmsOrigin })
     await new Promise((resolvePromise, rejectPromise) => {
       appServer.once('error', rejectPromise)
