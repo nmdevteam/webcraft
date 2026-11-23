@@ -22,7 +22,7 @@ export function getPwaReadiness(settings: PwaSettings): string[] {
   const messages: string[] = []
   if (!settings.icon192Path) messages.push('Choose an application icon (192×192 recommended).')
   if (!settings.icon512Path) messages.push('Choose a large application icon (512×512 recommended).')
-  if (settings.icon192Path || settings.icon512Path) messages.push('Image dimensions are not inspected; select files whose actual dimensions match the labels.')
+  if (settings.icon192Path || settings.icon512Path) messages.push('Selected project icons are checked for exact pixel dimensions when settings are saved and again before export.')
   if (!settings.offlineFallback) messages.push('Offline navigation will fall back to the cached site shell; no dedicated offline page will be included.')
   messages.push('Install prompts require a secure deployment origin (HTTPS or localhost); this source check does not simulate a browser install prompt.')
   return messages

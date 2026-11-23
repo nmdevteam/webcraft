@@ -319,7 +319,7 @@ describe('Phase 6 forms, animations, and PWAs', () => {
     const pwaSettings = ProjectSettingsSchema.parse({ title: 'Trail Guide', pwa: { enabled: true, name: 'Trail Guide', shortName: 'Trail', icon192Path: '/media/icon.png', icon512Path: '/media/icon-large.webp', cacheStrategy: 'cache-first', offlineFallback: true } })
     const manifest = createPwaManifest(pwaSettings.pwa)
     expect(manifest.icons).toEqual([{ src: '/assets/icon.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/assets/icon-large.webp', sizes: '512x512', type: 'image/webp', purpose: 'any' }])
-    expect(getPwaReadiness(pwaSettings.pwa).some((message) => message.includes('dimensions are not inspected'))).toBe(true)
+    expect(getPwaReadiness(pwaSettings.pwa).some((message) => message.includes('checked for exact pixel dimensions when settings are saved and again before export'))).toBe(true)
     const files = generateSource({ name: 'Trail Guide', settings: pwaSettings, pages: [home()] }, [{ filename: 'icon.png', contentBase64: 'aGVsbG8=' }, { filename: 'icon-large.webp', contentBase64: 'aGVsbG8=' }])
     const exportedManifest = JSON.parse(files['public/manifest.webmanifest']!.content)
     expect(exportedManifest.name).toBe('Trail Guide')

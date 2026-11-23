@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { ProjectSettingsSchema } from '@webcraft/core/schema'
 import { TEMPLATE_CATEGORIES } from '@webcraft/core/templates'
+import { validatePwaIconDimensions } from '../lib/pwa-icons'
 
 export const Projects: CollectionConfig = {
   slug: 'projects',
@@ -12,11 +13,34 @@ export const Projects: CollectionConfig = {
     delete: ({ req }) => req.user ? { owner: { equals: req.user.id } } : false,
   },
   hooks: {
-    beforeChange: [({ data, req, operation, originalDoc }) => {
+    beforeChange: [async ({ data, req, operation, originalDoc }) => {
       if (!req.user) throw new Error('Authentication is required')
       if (operation === 'create') data.owner = req.user.id
       else data.owner = originalDoc?.owner
-      if (data.settings !== undefined) data.settings = ProjectSettingsSchema.parse(data.settings)
+      if (data.settings !== undefined) {
+        data.settings = ProjectSettingsSchema.parse(data.settings)
+        const iconPaths = [data.settings.pwa.icon192Path, data.settings.pwa.icon512Path].filter(Boolean)
+        if (iconPaths.length) {
+          const projectId = originalDoc?.id
+          if (!projectId) throw new Error('PWA icons can only be selected from an existing project asset library.')
+          const filenames = [...new Set(iconPaths.map((path: string) => path.slice('/media/'.length)))]
+          const assets = await req.payload.find({
+            collection: 'assets',
+            where: { and: [
+              { project: { equals: projectId } },
+              { owner: { equals: req.user.id } },
+              { filename: { in: filenames } },
+            ] },
+            limit: filenames.length + 1,
+            depth: 0,
+            select: { filename: true },
+            user: req.user,
+            overrideAccess: false,
+            req: { transactionID: req.transactionID },
+          })
+          await validatePwaIconDimensions(data.settings.pwa, assets.docs)
+        }
+      }
       return data
     }],
   },

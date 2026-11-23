@@ -87,8 +87,40 @@ describe('static performance and accessibility measurements', () => {
     expect(report.performance.findings.some((finding) => finding.code === 'PERF_IMAGE_LAZY_LOADING')).toBe(true)
     expect(report.performance.unavailable.join(' ')).toMatch(/Lighthouse/)
     expect(report.performance.unavailable.join(' ')).toMatch(/Core Web Vitals/)
+    expect(report.performance.unavailable.join(' ')).toMatch(/field data from deployed users/)
+    expect(report.performance.metrics.productionBuildMeasured).toBe(false)
     expect(report.performance.metrics).not.toHaveProperty('lighthouseScore')
     expect(report.performance.metrics).not.toHaveProperty('lcp')
+  })
+
+  it('reports supplied production build artifact measurements without turning them into browser scores', () => {
+    const pages = [page('Home', 'home', [textNode('heading', 'heading', 'Home', { level: 1 })]) as ExportPage]
+    const { files, exported } = build({}, pages)
+    const report = analyzeWebsite({
+      projectName: 'Audit site',
+      settings: {},
+      pages: exported.pages,
+      files,
+      productionArtifacts: {
+        productionBuildMs: 3210,
+        outputFileCount: 5,
+        outputTotalBytes: 180_000,
+        javascriptBundleBytes: 120_000,
+        cssBundleBytes: 12_000,
+        htmlBytes: 1_000,
+        otherAssetBytes: 47_000,
+        gzipTextAssetBytes: 40_000,
+        gzipJavaScriptBytes: 30_000,
+        gzipCssBytes: 3_000,
+        gzipHtmlBytes: 700,
+      },
+    })
+    expect(report.performance.metrics.productionBuildMeasured).toBe(true)
+    expect(report.performance.metrics.outputTotalBytes).toBe(180_000)
+    expect(report.performance.metrics.gzipJavaScriptBytes).toBe(30_000)
+    expect(report.performance.metrics).not.toHaveProperty('lighthouseScore')
+    expect(report.performance.unavailable.join(' ')).toMatch(/Actual transfer sizes can differ/)
+    expect(report.performance.unavailable.join(' ')).toMatch(/Field CWV require real field data/)
   })
 
   it('flags measured large image assets and emits only static source-level CSS observations', () => {

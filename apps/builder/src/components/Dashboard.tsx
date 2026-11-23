@@ -6,6 +6,7 @@ import { api, apiAllDocs, jsonBody } from '../api'
 import { useAuthStore } from '../store/auth'
 import { downloadProjectZip } from '../lib/export'
 import { Button, IconButton, Input, Status } from './ui'
+import { useActionDialog } from './ActionDialog'
 
 type Project = { id: string; name: string; category: string; templateId: string; settings: any; createdAt: string; updatedAt: string }
 type Page = { id: string; title: string; slug: string; isHome: boolean; nodes: any[] }
@@ -17,6 +18,7 @@ export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([])
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [workspaceLoadError, setWorkspaceLoadError] = useState(false)
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -24,10 +26,12 @@ export function Dashboard() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const { requestText, requestConfirmation, actionDialog } = useActionDialog()
   const [theme, setTheme] = useState<'light'|'dark'>(() => localStorage.getItem('webcraft-theme') === 'dark' ? 'dark' : 'light')
 
   async function refresh() {
     setLoading(true)
+    setWorkspaceLoadError(false)
     try {
       const loadedProjects = await apiAllDocs<Project>('/projects?limit=100&depth=0&sort=-updatedAt')
       setProjects(loadedProjects)
@@ -36,7 +40,7 @@ export function Dashboard() {
         return [project.id, response.totalDocs] as const
       }))
       setPageCounts(Object.fromEntries(counts))
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not load projects.') }
+    } catch (err) { setWorkspaceLoadError(true); setError(err instanceof Error ? err.message : 'Could not load projects.') }
     finally { setLoading(false) }
   }
   useEffect(() => { void refresh() }, [])
@@ -65,7 +69,7 @@ export function Dashboard() {
     finally { setBusy(false) }
   }
   async function rename(project: Project) {
-    const name = window.prompt('New website name', project.name)?.trim()
+    const name = (await requestText({ title: 'Rename website', label: 'Website name', initialValue: project.name, confirmLabel: 'Save name', maxLength: 120 }))?.trim()
     if (!name || name === project.name) return
     try { await api(`/projects/${project.id}`, { method: 'PATCH', body: jsonBody({ name, settings: { ...project.settings, title: name } }) }); await refresh() }
     catch (err) { setError(err instanceof Error ? err.message : 'Rename failed.') }
@@ -81,7 +85,7 @@ export function Dashboard() {
     finally { setBusy(false) }
   }
   async function remove(project: Project) {
-    if (!window.confirm(`Delete “${project.name}”, all its pages, and its uploaded images? This cannot be undone.`)) return
+    if (!(await requestConfirmation({ title: 'Delete this website?', description: `Delete “${project.name}”, all its pages, and its uploaded images? This cannot be undone.`, confirmLabel: 'Delete website', destructive: true }))) return
     setBusy(true); setError('')
     try {
       await api(`/webcraft/projects/${encodeURIComponent(project.id)}`, { method: 'DELETE' }); await refresh()
@@ -103,8 +107,8 @@ export function Dashboard() {
       <div className="side-nav-bottom"><div className="storage-card"><div className="storage-icon"><Layers3 size={16}/></div><b>Your work, your machine.</b><p>Projects are stored in your local Payload database.</p><span><i/></span><small>LOCAL-FIRST WORKSPACE</small></div><button className="nav-link" onClick={() => clear()}><LogOut size={17}/>Sign out</button></div>
     </aside>
     <main className="dashboard-main"><header className="top-header"><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>Overview</strong></div><div className="header-actions"><button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} aria-label="Toggle theme">{theme === 'light' ? <Moon size={17}/> : <Sun size={17}/>}</button><span className="user-chip"><span className="avatar small">{(user?.name ?? 'W').slice(0,1).toUpperCase()}</span>{user?.name || user?.email}</span></div></header>
-      <div className="dashboard-content"><div className="welcome-row"><div><span className="eyebrow">SUNDAY, YOUR WAY</span><h1>Good to see you, {user?.name?.split(' ')[0] || 'there'}<span className="wave-dot">.</span></h1><p>Bring your next website to life, one good idea at a time.</p></div><Button variant="primary" onClick={() => { setError(''); setDialog(true) }}><Plus size={17}/>Create website</Button></div>
-        <div className="stats-row"><div className="stat-card"><span className="stat-icon purple"><Globe2 size={17}/></span><small>Total websites</small><b>{projects.length}</b><span className="stat-foot">In your workspace</span></div><div className="stat-card"><span className="stat-icon blue"><Layers3 size={17}/></span><small>Total pages</small><b>{totalPages}</b><span className="stat-foot">Across your websites</span></div><div className="stat-card"><span className="stat-icon amber"><Clock3 size={17}/></span><small>Last saved</small><b className="stat-date">{projects[0] ? new Date(projects[0].updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}</b><span className="stat-foot">Latest project update</span></div><div className="stat-card"><span className="stat-icon green"><Activity size={17}/></span><small>Workspace status</small><b className="stat-online"><span/>Ready</b><span className="stat-foot">Local database connected</span></div></div>
+      <div className="dashboard-content"><div className="welcome-row"><div><span className="eyebrow">YOUR WORKSPACE</span><h1>Good to see you, {user?.name?.split(' ')[0] || 'there'}<span className="wave-dot">.</span></h1><p>Bring your next website to life, one good idea at a time.</p></div><Button variant="primary" onClick={() => { setError(''); setDialog(true) }}><Plus size={17}/>Create website</Button></div>
+        <div className="stats-row"><div className="stat-card"><span className="stat-icon purple"><Globe2 size={17}/></span><small>Total websites</small><b>{projects.length}</b><span className="stat-foot">In your workspace</span></div><div className="stat-card"><span className="stat-icon blue"><Layers3 size={17}/></span><small>Total pages</small><b>{totalPages}</b><span className="stat-foot">Across your websites</span></div><div className="stat-card"><span className="stat-icon amber"><Clock3 size={17}/></span><small>Last saved</small><b className="stat-date">{projects[0] ? new Date(projects[0].updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}</b><span className="stat-foot">Latest project update</span></div><div className="stat-card"><span className={`stat-icon ${workspaceLoadError?'amber':'green'}`}><Activity size={17}/></span><small>Workspace status</small><b className={loading?'stat-checking':workspaceLoadError?'stat-attention':'stat-online'}><span/>{loading?'Checking…':workspaceLoadError?'Needs attention':'Ready'}</b><span className="stat-foot">{loading?'Loading project data':workspaceLoadError?'Project data could not be loaded':'Project data loaded locally'}</span></div></div>
         <div className="section-heading" id="projects"><div><span className="eyebrow">YOUR CREATIVE SPACE</span><h2>My websites <span className="count-pill">{projects.length}</span></h2></div><div className="project-toolbar"><label className="search-box"><Search size={16}/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search websites" aria-label="Search websites"/></label><Button variant="secondary" onClick={() => { setError(''); setDialog(true) }}><Plus size={16}/>New website</Button></div></div>
         {error && <div className="inline-error dismissible" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}{notice && <div className="inline-success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
         {loading ? <div className="loading-grid">{[1,2,3].map((n) => <div className="skeleton-card" key={n}/>)}</div> : filtered.length ? <div className="project-grid">{filtered.map((project, index) => <ProjectCard key={project.id} project={project} count={pageCounts[project.id] ?? 0} index={index} onOpen={() => navigate(`/editor/${project.id}`)} onPreview={() => navigate(`/preview/${project.id}`)} onRename={() => void rename(project)} onDuplicate={() => void duplicate(project)} onDelete={() => void remove(project)} onExport={() => void exportProject(project)} busy={busy}/>)}</div> : <div className="empty-state"><div className="empty-illustration"><WandSparkles size={26}/></div><h3>{search ? 'No websites match your search' : 'A fresh canvas awaits'}</h3><p>{search ? 'Try a different name or clear the search.' : 'Create a website from a template or start with a blank page.'}</p>{!search && <Button variant="primary" onClick={() => setDialog(true)}><Plus size={16}/>Create your first website</Button>}</div>}
@@ -113,6 +117,7 @@ export function Dashboard() {
       </div>
     </main>
     {dialog && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDialog(false) }}><form className="modal-card" onSubmit={createProject}><div className="modal-head"><span className="modal-icon"><Sparkles size={18}/></span><button type="button" className="close-modal" onClick={() => setDialog(false)}>×</button></div><span className="eyebrow">NEW PROJECT</span><h2>What are we building?</h2><p>Choose a template to get moving, or begin with a blank canvas.</p><label className="field-label">Website name<Input autoFocus value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g. Northstar Studio" maxLength={120}/></label><label className="field-label">Starting point<select className="input select-input" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>{TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.category}</option>)}</select></label><div className="template-description"><Check size={14}/>{template.description}</div>{error && <div className="inline-error" role="alert">{error}</div>}<div className="modal-actions"><Button type="button" onClick={() => setDialog(false)}>Cancel</Button><Button variant="primary" type="submit" busy={busy}><Plus size={16}/>Create website</Button></div></form></div>}
+    {actionDialog}
   </div>
 }
 

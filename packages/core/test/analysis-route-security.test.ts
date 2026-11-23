@@ -4,6 +4,7 @@ import { generateSource } from '../src/exporter'
 const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
   projectExport: vi.fn(),
+  validateGeneratedSource: vi.fn(),
 }))
 
 vi.mock('../../../apps/cms/src/lib/project-history-route', () => ({
@@ -11,6 +12,7 @@ vi.mock('../../../apps/cms/src/lib/project-history-route', () => ({
   validHistoryId: (value: string) => /^[A-Za-z0-9_-]{1,80}$/.test(value),
 }))
 vi.mock('../../../apps/cms/src/lib/project-export', () => ({ projectExport: mocks.projectExport }))
+vi.mock('../../../apps/cms/src/lib/export-validation', () => ({ validateGeneratedSource: mocks.validateGeneratedSource }))
 
 import { GET } from '../../../apps/cms/src/app/api/webcraft/projects/[projectId]/analysis/route'
 
@@ -39,27 +41,29 @@ describe('website analysis API security', () => {
 
   it('returns only a bounded report and scopes all project reads to the authenticated owner', async () => {
     const user = { id: 'owner-1' }
-    const findByID = vi.fn(async () => ({ id: 'project_1' }))
-    const payload = { findByID }
+    const payload = {}
     mocks.authenticate.mockResolvedValue({ payload, user })
     const files = generateSource({ name: 'Owner site', settings: {}, pages: [{
       title: 'Home', slug: 'home', isHome: true,
       nodes: [{ id: 'secret-node', type: 'paragraph', props: { text: 'PRIVATE BODY MARKER' }, style: {}, children: [] }],
     }] })
     mocks.projectExport.mockResolvedValue({ files, projectName: 'Owner site', pageCount: 1, settings: {} })
+    mocks.validateGeneratedSource.mockResolvedValue({ valid: true, productionArtifacts: { outputTotalBytes: 120_000, gzipJavaScriptBytes: 32_000 } })
 
     const response = await invoke(new Request('https://webcraft.local/api/analysis', { headers: { origin: 'https://webcraft.local' } }))
     const report = await response.json()
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(report.mode).toBe('static-generated-source')
+    expect(report.performance.metrics.outputTotalBytes).toBe(120_000)
+    expect(report.performance.metrics.gzipJavaScriptBytes).toBe(32_000)
     expect(JSON.stringify(report)).not.toContain('PRIVATE BODY MARKER')
-    expect(findByID).toHaveBeenCalledWith(expect.objectContaining({ collection: 'projects', id: 'project_1', user, overrideAccess: false }))
     expect(mocks.projectExport).toHaveBeenCalledWith(payload, 'project_1', user)
+    expect(mocks.validateGeneratedSource).toHaveBeenCalledWith(files)
   })
 
   it('does not expose internal export errors in its response', async () => {
-    mocks.authenticate.mockResolvedValue({ payload: { findByID: vi.fn(async () => ({})) }, user: { id: 'owner-1' } })
+    mocks.authenticate.mockResolvedValue({ payload: {}, user: { id: 'owner-1' } })
     mocks.projectExport.mockRejectedValue(new Error('private storage path /srv/private/media'))
     const response = await invoke(new Request('https://webcraft.local/api/analysis'))
     expect(response.status).toBe(422)

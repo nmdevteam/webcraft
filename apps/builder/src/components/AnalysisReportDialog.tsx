@@ -14,6 +14,7 @@ function metricLabel(value: string) { return value.replace(/([a-z0-9])([A-Z])/g,
 function formatMetric(key: string, value: number | string | boolean) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'number' && /Bytes$/.test(key)) return formatBytes(value)
+  if (typeof value === 'number' && /Ms$/.test(key)) return `${value.toLocaleString()} ms`
   if (typeof value === 'number') return value.toLocaleString()
   return value
 }
@@ -47,8 +48,8 @@ export function AnalysisReportDialog({ report, onClose, onOpenPage }: Props) {
     <section className="modal-card analysis-dialog" role="dialog" aria-modal="true" aria-labelledby="analysis-title">
       <div className="modal-head"><span className="modal-icon">WC</span><button type="button" className="close-modal" onClick={onClose} aria-label="Close website analysis">×</button></div>
       <span className="eyebrow">WEBSITE ANALYSIS</span><h2 id="analysis-title">{report.projectName}</h2>
-      <p className="analysis-intro">Static checks of {report.pageCount} saved page(s) and {report.generatedFileCount} generated file(s). No Lighthouse or Core Web Vitals scores are produced.</p>
-      <div className="analysis-summary" role="status"><b>{totalErrors} errors</b><span>·</span><b>{totalWarnings} warnings</b><span>·</span><span>Saved project data, generated source, and image file bytes</span></div>
+      <p className="analysis-intro">Static checks of {report.pageCount} saved page(s), plus measurements from a real generated production build. No Lighthouse score or browser-session result is produced; field Core Web Vitals require real data from deployed users.</p>
+      <div className="analysis-summary" role="status"><b>{totalErrors} errors</b><span>·</span><b>{totalWarnings} warnings</b><span>·</span><span>Saved project data, generated source, and actual production build files</span></div>
       <div className="analysis-sections"><ReportSection name="seo" section={report.seo} onOpenPage={onOpenPage}/><ReportSection name="performance" section={report.performance} onOpenPage={onOpenPage}/><ReportSection name="accessibility" section={report.accessibility} onOpenPage={onOpenPage}/></div>
       <div className="modal-actions"><Button variant="primary" onClick={onClose}>Done</Button></div>
     </section>

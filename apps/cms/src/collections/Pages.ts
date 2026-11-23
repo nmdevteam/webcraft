@@ -34,12 +34,6 @@ export const Pages: CollectionConfig = {
       })
       Object.assign(data, page)
       data.undoHistory = PageUndoHistorySchema.parse(data.undoHistory ?? originalDoc?.undoHistory ?? {})
-      const duplicates = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { slug: { equals: page.slug } }] }, limit: 2, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
-      if (duplicates.docs.some((item) => String(item.id) !== String(originalDoc?.id ?? ''))) throw new Error('A page with this URL slug already exists in the project.')
-      if (page.isHome) {
-        const homepages = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { isHome: { equals: true } }] }, limit: 2, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
-        if (homepages.docs.some((item) => String(item.id) !== String(originalDoc?.id ?? ''))) throw new Error('This project already has a homepage.')
-      }
       if (operation === 'update') {
         const submittedRevision = submittedPageRevision(req.data, data.revision)
         const revision = nextPageRevision(submittedRevision, originalDoc?.revision)
@@ -49,8 +43,9 @@ export const Pages: CollectionConfig = {
             : 'A page revision is required. Reload this page before saving.'
           throw new APIError(message, revision.status, null, true)
         }
+        data.expectedRevision = submittedRevision
         data.revision = revision.nextRevision
-      }
+      } else data.expectedRevision = null
       return data
     }],
   },
@@ -63,6 +58,7 @@ export const Pages: CollectionConfig = {
     { name: 'nodes', type: 'json', required: true, defaultValue: [] },
     { name: 'undoHistory', type: 'json', defaultValue: { past: [], future: [] }, admin: { hidden: true } },
     { name: 'revision', type: 'number', min: 0, defaultValue: 0, admin: { readOnly: true } },
+    { name: 'expectedRevision', type: 'number', admin: { hidden: true, readOnly: true } },
     { name: 'project', type: 'relationship', relationTo: 'projects', required: true, index: true },
     { name: 'owner', type: 'relationship', relationTo: 'users', required: true, index: true, admin: { readOnly: true } },
   ],

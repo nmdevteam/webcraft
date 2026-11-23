@@ -29,7 +29,7 @@ export async function PATCH(request: Request, context: Context) {
     if (String((current.owner as any)?.id ?? current.owner) !== String(user.id)) return NextResponse.json({ error: 'Only the package owner can manage this item.' }, { status: 403 })
     const body = await readBoundedJson(request) as any
     if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'A package update object is required.' }, { status: 400 })
-    const packageData = body.package === undefined ? current.packageData : parseMarketplacePackage(body.package)
+    const packageData = parseMarketplacePackage(body.package === undefined ? current.packageData : body.package)
     if (packageData.type !== current.type) return NextResponse.json({ error: 'Package type cannot be changed.' }, { status: 400 })
     if (body.published !== undefined && typeof body.published !== 'boolean') return NextResponse.json({ error: 'published must be true or false.' }, { status: 400 })
     const updated = await payload.update({ collection: 'marketplace-packages', id: packageId, data: { type: packageData.type, packageData, published: body.published ?? current.published } as any, user, overrideAccess: true })

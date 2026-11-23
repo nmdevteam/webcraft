@@ -36,6 +36,7 @@ export type WebsiteAnalysisInput = {
   settings: unknown
   pages: ExportPage[]
   files: Record<string, GeneratedFile>
+  productionArtifacts?: Record<string, number>
 }
 
 const MAX_FINDINGS_PER_CATEGORY = 300
@@ -194,12 +195,22 @@ export function analyzeWebsite(input: WebsiteAnalysisInput): WebsiteAnalysisRepo
     remoteImageNodes,
     oversizedImageAssets: largestAssets.filter((asset) => asset.bytes > MiB).length,
     customCssBytes: textBytes(settings.customCss),
+    productionBuildMeasured: Boolean(input.productionArtifacts),
+    ...(input.productionArtifacts ?? {}),
   }, [
-    'Lighthouse scores and lab audits are not run.',
-    'Core Web Vitals (LCP, INP, CLS), FCP, TTFB, real-device/browser performance, network waterfalls, compressed transfer sizes, and cache behavior are not measured.',
-    'Production build bundle sizes and post-tree-shaking unused JavaScript are not measured; the analysis reads generated source files and decoded image bytes only.',
-    'Render-blocking behavior after Vite production bundling is not measured.',
+    'No Lighthouse or other browser-based lab audit is run, so this report does not contain a Lighthouse score or lab CWV values.',
+    'Core Web Vitals (LCP, INP, CLS), FCP, TTFB, real-device behavior, network waterfalls, and cache behavior are not measured. Field CWV require real field data from deployed users; they are not inferred from source or build files.',
+    'The reported gzip sizes are computed from local production build files. Actual transfer sizes can differ based on deployment compression, CDN settings, headers, and content negotiation.',
+    ...(input.productionArtifacts ? [] : ['Production bundle output and compressed artifact sizes were not measured for this report.']),
+    'Browser rendering, route navigation, and render-blocking behavior after Vite production bundling are not simulated.',
   ])
+  const productionArtifacts = input.productionArtifacts
+  if (productionArtifacts?.javascriptBundleBytes !== undefined && productionArtifacts.javascriptBundleBytes > 500 * 1024) {
+    performance.add({ code: 'PERF_PRODUCTION_JS_BUNDLE_LARGE', severity: 'warning', evidence: `${formatBytes(productionArtifacts.javascriptBundleBytes)} across generated JavaScript bundles`, message: 'The generated production JavaScript bundles exceed 500 KiB before transfer compression.', recommendation: 'Review the generated bundle and project features; split or remove code only if you maintain the exported site build.' })
+  }
+  if (productionArtifacts?.gzipJavaScriptBytes !== undefined && productionArtifacts.gzipJavaScriptBytes > 200 * 1024) {
+    performance.add({ code: 'PERF_GZIP_JS_BUNDLE_LARGE', severity: 'warning', evidence: `${formatBytes(productionArtifacts.gzipJavaScriptBytes)} measured with gzip`, message: 'The generated JavaScript bundles exceed 200 KiB when individually gzip-compressed.', recommendation: 'Review the production bundle and consider reducing code or loading non-critical features later in the exported site.' })
+  }
   for (const asset of largestAssets.filter((item) => item.bytes > MiB)) performance.add({ code: 'PERF_IMAGE_ASSET_LARGE', severity: 'warning', evidence: `${asset.path.replace(/^public\//, '')} · ${formatBytes(asset.bytes)}`, message: 'This generated image asset is larger than 1 MiB.', recommendation: 'Resize it to the display dimensions and compress it or export a modern WebP image before uploading.' })
   if (assetBytes > 3 * MiB) performance.add({ code: 'PERF_TOTAL_IMAGE_BYTES_HIGH', severity: 'warning', evidence: formatBytes(assetBytes), message: 'The generated project contains more than 3 MiB of image files.', recommendation: 'Review image dimensions and formats, then remove or compress assets that are not needed.' })
   if (textBytes(settings.customCss) > 8 * 1024) performance.add({ code: 'PERF_CUSTOM_CSS_LARGE', severity: 'info', evidence: `${textBytes(settings.customCss)} bytes`, message: 'Custom CSS is larger than 8 KiB.', recommendation: 'Remove obsolete rules and consolidate repeated declarations.' })

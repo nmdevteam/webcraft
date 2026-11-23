@@ -86,6 +86,9 @@ importers:
       '@webcraft/core':
         specifier: workspace:*
         version: link:../../packages/core
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
       next:
         specifier: 16.4.6
         version: 16.4.6(@types/node@24.10.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.77.4)
