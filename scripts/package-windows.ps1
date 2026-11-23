@@ -85,6 +85,12 @@ if (-not $Pnpm) { throw 'pnpm is required to create the production CMS deploymen
 & $Pnpm.Source deploy --legacy --filter '@webcraft/cms' --prod $InstallCmsDir
 if ($LASTEXITCODE -ne 0) { throw "pnpm deploy failed with exit code $LASTEXITCODE." }
 if (-not (Test-Path -LiteralPath (Join-Path $InstallCmsDir 'node_modules') -PathType Container)) { throw 'pnpm deploy did not create its production dependency directory.' }
+$MigrationBaselineRelativePath = 'src\migrations\20261123_060000_initial_schema.sql'
+$MigrationBaselineSource = Join-Path $RepoRoot "apps\cms\$MigrationBaselineRelativePath"
+if (-not (Test-Path -LiteralPath $MigrationBaselineSource -PathType Leaf)) { throw 'The initial database schema baseline SQL file is missing from the repository.' }
+$MigrationBaselineTarget = Join-Path $InstallCmsDir $MigrationBaselineRelativePath
+New-Item -ItemType Directory -Path (Split-Path -Parent $MigrationBaselineTarget) -Force | Out-Null
+Copy-Item -LiteralPath $MigrationBaselineSource -Destination $MigrationBaselineTarget -Force
 Remove-Item -LiteralPath (Join-Path $InstallCmsDir 'node_modules') -Recurse -Force
 foreach ($WorkspaceFile in @('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json')) {
   $WorkspaceFilePath = Join-Path $RepoRoot $WorkspaceFile
@@ -136,6 +142,7 @@ $RequiredCmsFiles = @(
   (Join-Path $CmsDir 'node_modules\next\dist\bin\next'),
   (Join-Path $CmsDir 'node_modules\@webcraft\core\src\schema.ts'),
   (Join-Path $CmsDir 'payload.config.ts'),
+  (Join-Path $CmsDir 'src\migrations\20261123_060000_initial_schema.sql'),
   (Join-Path $CmsDir 'scripts\migrate-media.mjs'),
   (Join-Path $CmsDir '.next\BUILD_ID')
 )
@@ -144,6 +151,7 @@ foreach ($RequiredFile in $RequiredCmsFiles) {
 }
 $MigrationFiles = Get-ChildItem -LiteralPath (Join-Path $CmsDir 'src\migrations') -Filter '*.ts' -File -Recurse
 if (@($MigrationFiles).Count -eq 0) { throw 'The production CMS deployment has no database migration files.' }
+if (-not (Test-Path -LiteralPath (Join-Path $CmsDir 'src\migrations\20261123_060000_initial_schema.sql') -PathType Leaf)) { throw 'The production CMS deployment is missing its initial database schema SQL resource.' }
 $EnvironmentFiles = @(Get-ChildItem -LiteralPath $CmsDir -File -Recurse -Force | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
 if ($EnvironmentFiles.Count -gt 0) { throw "Refusing to package environment file(s): $($EnvironmentFiles.Name -join ', ')" }
 foreach ($CacheName in @('cache', 'dev', 'standalone')) {
@@ -193,11 +201,12 @@ if ($RuntimeArchiveInfo.Length -gt 1.9GB) { throw 'The runtime ZIP exceeds the 1
 $RuntimeArchive = [System.IO.Compression.ZipFile]::OpenRead($RuntimeArchivePath)
 try {
   $Entries = $RuntimeArchive.Entries
-  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'tsconfig.base.json', 'node/node.exe', 'postgres/bin/initdb.exe', 'apps/cms/.next/BUILD_ID', 'apps/cms/node_modules/@webcraft/core/src/schema.ts', 'builder/index.html')
+  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'tsconfig.base.json', 'node/node.exe', 'postgres/bin/initdb.exe', 'apps/cms/.next/BUILD_ID', 'apps/cms/node_modules/@webcraft/core/src/schema.ts', 'apps/cms/src/migrations/20261123_060000_initial_schema.sql', 'builder/index.html')
   foreach ($RequiredEntry in $RequiredEntries) {
     if (-not ($Entries | Where-Object { $_.FullName -ceq $RequiredEntry })) { throw "Runtime ZIP is missing required entry: $RequiredEntry" }
   }
   if (-not ($Entries | Where-Object { $_.FullName -like 'apps/cms/src/migrations/*.ts' })) { throw 'Runtime ZIP contains no CMS database migrations.' }
+  if (-not ($Entries | Where-Object { $_.FullName -ceq 'apps/cms/src/migrations/20261123_060000_initial_schema.sql' })) { throw 'Runtime ZIP is missing the initial database schema SQL resource.' }
   $PackedEnvironmentFiles = @($Entries | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
   if ($PackedEnvironmentFiles.Count -gt 0) { throw "Refusing to package environment file(s): $($PackedEnvironmentFiles.FullName -join ', ')" }
   Write-Output "Verified runtime ZIP entries: $($Entries.Count)"

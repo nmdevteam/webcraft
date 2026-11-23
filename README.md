@@ -61,13 +61,15 @@ Open the builder at <http://127.0.0.1:5173>. On first launch, create the single 
 
 ```sh
 pnpm typecheck
-pnpm test                         # core, analyzer, route-security, renderer-cache, and builder unit tests
+pnpm test                         # core, analyzer, route-security, renderer-cache, builder, and migration-safety unit tests
 pnpm test:integration             # install and production-build a generated sample site
 pnpm build                        # core, CMS, and builder production builds
 pnpm security:audit               # production dependency advisory scan
 ```
 
 The integrity migration has duplicate-preflight unit coverage. Run the Payload migration against a disposable PostgreSQL database when validating a release; the migration intentionally refuses to proceed until duplicate legacy slugs, homepages, or case-insensitive folder names are resolved.
+
+The initial schema baseline (`20261123_060000_initial_schema`) installs only into an empty application schema, skips an existing database only when its tables, columns, indexes, and constraints match, and refuses partial schemas. It excludes Payload's migration ledger and is intentionally irreversible: `migrate:down` stops rather than deleting tables or user data. Back up the database and media before migrations or resets.
 
 The generated-project validator uses `npm install --ignore-scripts --include=dev` in a fresh temporary directory, then runs the generated `npm run build`, and removes the directory afterward. It accepts at most 300 source files and 8 MB of combined source. An export supports at most 100 pages and 100 project assets; uploaded image data is additionally limited to 5 MB combined per export. The dashboard, editor, and preview paginate their project, page, asset, and folder lists rather than silently hiding records after the first 100.
 

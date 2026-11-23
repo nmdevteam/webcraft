@@ -10,7 +10,7 @@
     "dev": "dotenv -e .env -- concurrently -k -n cms,builder -c blue,green \"pnpm --filter @webcraft/cms dev\" \"pnpm --filter @webcraft/builder dev\"",
     "build": "pnpm --filter @webcraft/core build && dotenv -e .env -- pnpm --filter @webcraft/cms build && pnpm --filter @webcraft/builder build",
     "build:packaged": "pnpm --filter @webcraft/core build && pnpm --filter @webcraft/cms build && pnpm --filter @webcraft/builder build",
-    "test": "pnpm --filter @webcraft/core test && pnpm --filter @webcraft/builder test && pnpm test:runtime",
+    "test": "pnpm --filter @webcraft/core test && pnpm --filter @webcraft/builder test && pnpm test:runtime && node --test apps/cms/test/initial-schema-migration.test.mjs",
     "test:runtime": "node --test apps/runtime/test/server.test.mjs",
     "test:integration": "pnpm --filter @webcraft/core test:integration",
     "typecheck": "pnpm --filter @webcraft/core typecheck && pnpm --filter @webcraft/cms typecheck && pnpm --filter @webcraft/builder typecheck",
