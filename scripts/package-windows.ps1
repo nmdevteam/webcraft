@@ -134,9 +134,10 @@ Set-Content -LiteralPath (Join-Path $PayloadDir 'THIRD-PARTY-NOTICES.txt') -Valu
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $RuntimeArchivePath = Join-Path $PayloadDir "WebCraft-runtime-v$Version.zip"
-[System.IO.Compression.ZipFile]::CreateFromDirectory($RuntimeDir, $RuntimeArchivePath, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+[System.IO.Compression.ZipFile]::CreateFromDirectory($RuntimeDir, $RuntimeArchivePath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 $RuntimeArchiveInfo = Get-Item -LiteralPath $RuntimeArchivePath
-if ($RuntimeArchiveInfo.Length -gt 1.5GB) { throw 'The runtime ZIP exceeds the 1.5 GiB package safety ceiling; reduce the payload before building this MSI.' }
+Write-Output "Runtime archive size: $([math]::Round($RuntimeArchiveInfo.Length / 1GB, 3)) GiB"
+if ($RuntimeArchiveInfo.Length -gt 1.9GB) { throw 'The runtime ZIP exceeds the 1.9 GiB safety ceiling beneath Windows Installer per-file limits.' }
 $RuntimeArchive = [System.IO.Compression.ZipFile]::OpenRead($RuntimeArchivePath)
 try {
   $Entries = $RuntimeArchive.Entries

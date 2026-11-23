@@ -116,7 +116,7 @@ jobs:
           & $Wix build -arch x64 packaging/windows/WebCraft.wxs -d "PayloadDir=$env:WEBCRAFT_PAYLOAD" -d 'ProductVersion=0.1.1' -o $env:WEBCRAFT_MSI
           if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed with exit code $LASTEXITCODE." }
           $MsiInfo = Get-Item -LiteralPath $env:WEBCRAFT_MSI
-          if ($MsiInfo.Length -gt 1.75GB) { throw 'The MSI exceeds the 1.75 GiB package safety ceiling.' }
+          if ($MsiInfo.Length -gt 1.95GB) { throw 'The MSI exceeds the 1.95 GiB package safety ceiling.' }
           $MsiHash = (Get-FileHash -LiteralPath $env:WEBCRAFT_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output "Created $env:WEBCRAFT_MSI ($([math]::Round($MsiInfo.Length / 1MB, 1)) MiB; SHA-256 $MsiHash)"
           "Installer SHA-256: ``$MsiHash``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
