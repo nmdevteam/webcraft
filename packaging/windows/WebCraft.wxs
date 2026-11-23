@@ -6,7 +6,6 @@
     Version="$(var.ProductVersion)"
     UpgradeCode="{B6BD78D6-EB7B-4F88-A4B8-116719B11982}"
     Scope="perMachine"
-    Platform="x64"
     InstallerVersion="500">
     <SummaryInformation Description="WebCraft local website builder" Manufacturer="NM Developers" />
 

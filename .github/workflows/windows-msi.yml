@@ -113,7 +113,7 @@ jobs:
           $Wix = Join-Path $WixTools 'wix.exe'
           $WixVersion = (& $Wix --version | Out-String).Trim()
           if ($WixVersion -notmatch '^5\.0\.2') { throw "Expected pinned WiX 5.0.2, received $WixVersion." }
-          & $Wix build packaging/windows/WebCraft.wxs -d "PayloadDir=$env:WEBCRAFT_PAYLOAD" -d 'ProductVersion=0.1.1' -o $env:WEBCRAFT_MSI
+          & $Wix build -arch x64 packaging/windows/WebCraft.wxs -d "PayloadDir=$env:WEBCRAFT_PAYLOAD" -d 'ProductVersion=0.1.1' -o $env:WEBCRAFT_MSI
           if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed with exit code $LASTEXITCODE." }
           $MsiHash = (Get-FileHash -LiteralPath $env:WEBCRAFT_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output "Created $env:WEBCRAFT_MSI (SHA-256 $MsiHash)"
