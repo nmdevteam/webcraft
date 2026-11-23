@@ -154,13 +154,17 @@ try {
     (Join-Path $RuntimeDir 'launcher.mjs'),
     (Join-Path $RuntimeDir 'node\node.exe'),
     (Join-Path $RuntimeDir 'postgres\bin\initdb.exe'),
-    (Join-Path $RuntimeDir 'cms\.next\BUILD_ID'),
-    (Join-Path $RuntimeDir 'cms\src\migrations'),
+    (Join-Path $RuntimeDir 'tsconfig.base.json'),
+    (Join-Path $RuntimeDir 'apps\cms\.next\BUILD_ID'),
+    (Join-Path $RuntimeDir 'apps\cms\node_modules\payload\bin.js'),
+    (Join-Path $RuntimeDir 'apps\cms\node_modules\next\dist\bin\next'),
+    (Join-Path $RuntimeDir 'apps\cms\node_modules\@webcraft\core\src\schema.ts'),
+    (Join-Path $RuntimeDir 'apps\cms\src\migrations'),
     (Join-Path $RuntimeDir 'builder\index.html')
   )) {
     if (-not (Test-Path -LiteralPath $RequiredRuntimePath)) { throw "First-launch extraction is missing $RequiredRuntimePath" }
   }
-  $ExtractedEnvironmentFiles = @(Get-ChildItem -LiteralPath (Join-Path $RuntimeDir 'cms') -File -Recurse -Force | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
+  $ExtractedEnvironmentFiles = @(Get-ChildItem -LiteralPath (Join-Path $RuntimeDir 'apps\cms') -File -Recurse -Force | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
   if ($ExtractedEnvironmentFiles.Count -gt 0) { throw "An environment file was included in the extracted CMS: $($ExtractedEnvironmentFiles.Name -join ', ')" }
 
   Stop-WebCraft

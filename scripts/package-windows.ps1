@@ -28,10 +28,14 @@ $PayloadDir = Join-Path $OutputRoot 'payload'
 $RuntimeDir = Join-Path $PayloadDir 'runtime'
 $NodeDir = Join-Path $RuntimeDir 'node'
 $PostgresDir = Join-Path $RuntimeDir 'postgres'
-$CmsDir = Join-Path $RuntimeDir 'cms'
+$CmsDir = Join-Path $RuntimeDir 'apps\cms'
 $BuilderDir = Join-Path $RuntimeDir 'builder'
 $ExtractDir = Join-Path $OutputRoot 'extract'
-New-Item -ItemType Directory -Path $NodeDir, $PostgresDir, $BuilderDir, $ExtractDir, (Join-Path $PayloadDir 'licenses') -Force | Out-Null
+$InstallWorkspaceDir = Join-Path $OutputRoot 'install-workspace'
+$InstallCmsDir = Join-Path $InstallWorkspaceDir 'apps\cms'
+$InstallNodeModulesDir = Join-Path $InstallWorkspaceDir 'node_modules'
+$InstallCoreDir = Join-Path $InstallWorkspaceDir 'packages\core'
+New-Item -ItemType Directory -Path $NodeDir, $PostgresDir, $BuilderDir, $ExtractDir, (Join-Path $PayloadDir 'licenses'), (Join-Path $InstallWorkspaceDir 'apps'), (Join-Path $InstallWorkspaceDir 'packages') -Force | Out-Null
 
 $NodeExtractDir = Join-Path $ExtractDir 'node'
 $PostgresExtractDir = Join-Path $ExtractDir 'postgres'
@@ -78,13 +82,59 @@ foreach ($LicenseFile in @(
 
 $Pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
 if (-not $Pnpm) { throw 'pnpm is required to create the production CMS deployment.' }
-& $Pnpm.Source --config.node-linker=hoisted deploy --legacy --filter '@webcraft/cms' --prod $CmsDir
+& $Pnpm.Source deploy --legacy --filter '@webcraft/cms' --prod $InstallCmsDir
 if ($LASTEXITCODE -ne 0) { throw "pnpm deploy failed with exit code $LASTEXITCODE." }
-$VirtualStorePath = Join-Path $CmsDir 'node_modules\.pnpm'
-if (Test-Path -LiteralPath $VirtualStorePath) { throw 'pnpm deploy did not create the expected flat production node_modules layout; refusing to package deep virtual-store paths.' }
+if (-not (Test-Path -LiteralPath (Join-Path $InstallCmsDir 'node_modules') -PathType Container)) { throw 'pnpm deploy did not create its production dependency directory.' }
+Remove-Item -LiteralPath (Join-Path $InstallCmsDir 'node_modules') -Recurse -Force
+foreach ($WorkspaceFile in @('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json')) {
+  $WorkspaceFilePath = Join-Path $RepoRoot $WorkspaceFile
+  if (-not (Test-Path -LiteralPath $WorkspaceFilePath -PathType Leaf)) { throw "The locked production workspace is missing $WorkspaceFile." }
+  Copy-Item -LiteralPath $WorkspaceFilePath -Destination $InstallWorkspaceDir -Force
+}
+New-Item -ItemType Directory -Path $InstallCoreDir -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'packages\core\package.json') -Destination $InstallCoreDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'packages\core\src') -Destination $InstallCoreDir -Recurse -Force
+Push-Location $InstallWorkspaceDir
+try {
+  & $Pnpm.Source --config.node-linker=hoisted install --filter '@webcraft/cms' --prod --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) { throw "The locked hoisted production dependency install failed with exit code $LASTEXITCODE." }
+} finally {
+  Pop-Location
+}
+if (-not (Test-Path -LiteralPath $InstallNodeModulesDir -PathType Container)) { throw 'The hoisted production dependency install did not create node_modules.' }
+$VirtualStorePath = Join-Path $InstallNodeModulesDir '.pnpm'
+if (Test-Path -LiteralPath $VirtualStorePath -PathType Container) {
+  $VirtualStoreEntries = @(Get-ChildItem -LiteralPath $VirtualStorePath -Force)
+  $UnexpectedVirtualStoreEntries = @($VirtualStoreEntries | Where-Object { $_.PSIsContainer -or $_.Name -ne 'lock.yaml' })
+  if ($UnexpectedVirtualStoreEntries.Count -gt 0) { throw 'The hoisted production install unexpectedly created a pnpm virtual store; refusing to package deep dependency paths.' }
+  Remove-Item -LiteralPath $VirtualStorePath -Recurse -Force
+}
+$PnpmModulesMetadata = Join-Path $InstallNodeModulesDir '.modules.yaml'
+if (Test-Path -LiteralPath $PnpmModulesMetadata -PathType Leaf) { Remove-Item -LiteralPath $PnpmModulesMetadata -Force }
+$BinDirectories = @(Get-ChildItem -LiteralPath $InstallNodeModulesDir -Directory -Filter '.bin' -Recurse -Force)
+foreach ($BinDirectory in $BinDirectories) { Remove-Item -LiteralPath $BinDirectory.FullName -Recurse -Force }
+$LinkedDependencies = @(Get-ChildItem -LiteralPath $InstallNodeModulesDir -Force -Recurse | Where-Object { ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 })
+if ($LinkedDependencies.Count -gt 0) { throw "The hoisted production install contains non-portable linked dependencies: $($LinkedDependencies.FullName -join ', ')" }
+New-Item -ItemType Directory -Path $CmsDir -Force | Out-Null
+foreach ($CmsEntry in Get-ChildItem -LiteralPath $InstallCmsDir -Force) {
+  if ($CmsEntry.Name -eq 'node_modules') { continue }
+  Copy-Item -LiteralPath $CmsEntry.FullName -Destination $CmsDir -Recurse -Force
+}
+$CmsNodeModulesDir = Join-Path $CmsDir 'node_modules'
+New-Item -ItemType Directory -Path $CmsNodeModulesDir -Force | Out-Null
+foreach ($DependencyEntry in Get-ChildItem -LiteralPath $InstallNodeModulesDir -Force) {
+  Copy-Item -LiteralPath $DependencyEntry.FullName -Destination $CmsNodeModulesDir -Recurse -Force
+}
+$CoreModuleDir = Join-Path $CmsNodeModulesDir '@webcraft\core'
+if (Test-Path -LiteralPath $CoreModuleDir) { Remove-Item -LiteralPath $CoreModuleDir -Recurse -Force }
+New-Item -ItemType Directory -Path $CoreModuleDir -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'packages\core\package.json') -Destination $CoreModuleDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'packages\core\src') -Destination $CoreModuleDir -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'tsconfig.base.json') -Destination $RuntimeDir -Force
 $RequiredCmsFiles = @(
   (Join-Path $CmsDir 'node_modules\payload\bin.js'),
   (Join-Path $CmsDir 'node_modules\next\dist\bin\next'),
+  (Join-Path $CmsDir 'node_modules\@webcraft\core\src\schema.ts'),
   (Join-Path $CmsDir 'payload.config.ts'),
   (Join-Path $CmsDir 'scripts\migrate-media.mjs'),
   (Join-Path $CmsDir '.next\BUILD_ID')
@@ -104,7 +154,7 @@ Copy-Item -Path (Join-Path $RepoRoot 'apps\builder\dist\*') -Destination $Builde
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'apps\runtime\server.mjs') -Destination (Join-Path $RuntimeDir 'server.mjs')
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'apps\runtime\launcher.mjs') -Destination (Join-Path $RuntimeDir 'launcher.mjs')
 
-$Manifest = [ordered]@{ cmsDir = 'cms'; builderDir = 'builder' }
+$Manifest = [ordered]@{ cmsDir = 'apps/cms'; builderDir = 'builder' }
 $Manifest | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $RuntimeDir 'manifest.json') -Encoding utf8NoBOM
 $StartScript = @"
 @echo off
@@ -128,7 +178,7 @@ PostgreSQL 17.12 Windows x64 binaries from EDB are bundled for local-only databa
 
 The EDB archive's VCRUNTIME140.dll and VCRUNTIME140_1.dll are included with the bundled PostgreSQL executables. Microsoft runtime information: https://www.microsoft.com/en-us/download/details.aspx?id=48145.
 
-The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under cms\node_modules inside the runtime archive. WebCraft's license is included at licenses\WebCraft-LICENSE.txt.
+The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under apps\cms\node_modules inside the runtime archive. WebCraft's license is included at licenses\WebCraft-LICENSE.txt.
 
 WiX Toolset is used only to build the MSI in CI; it is not bundled or installed with WebCraft.
 "@
@@ -143,11 +193,11 @@ if ($RuntimeArchiveInfo.Length -gt 1.9GB) { throw 'The runtime ZIP exceeds the 1
 $RuntimeArchive = [System.IO.Compression.ZipFile]::OpenRead($RuntimeArchivePath)
 try {
   $Entries = $RuntimeArchive.Entries
-  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'node/node.exe', 'postgres/bin/initdb.exe', 'cms/.next/BUILD_ID', 'builder/index.html')
+  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'tsconfig.base.json', 'node/node.exe', 'postgres/bin/initdb.exe', 'apps/cms/.next/BUILD_ID', 'apps/cms/node_modules/@webcraft/core/src/schema.ts', 'builder/index.html')
   foreach ($RequiredEntry in $RequiredEntries) {
     if (-not ($Entries | Where-Object { $_.FullName -ceq $RequiredEntry })) { throw "Runtime ZIP is missing required entry: $RequiredEntry" }
   }
-  if (-not ($Entries | Where-Object { $_.FullName -like 'cms/src/migrations/*.ts' })) { throw 'Runtime ZIP contains no CMS database migrations.' }
+  if (-not ($Entries | Where-Object { $_.FullName -like 'apps/cms/src/migrations/*.ts' })) { throw 'Runtime ZIP contains no CMS database migrations.' }
   $PackedEnvironmentFiles = @($Entries | Where-Object { $_.Name -match '^\.env($|\.(local|development|production|test)(\.local)?$)' })
   if ($PackedEnvironmentFiles.Count -gt 0) { throw "Refusing to package environment file(s): $($PackedEnvironmentFiles.FullName -join ', ')" }
   Write-Output "Verified runtime ZIP entries: $($Entries.Count)"
@@ -156,6 +206,7 @@ try {
 }
 Remove-Item -LiteralPath $RuntimeDir -Recurse -Force
 Remove-Item -LiteralPath $ExtractDir -Recurse -Force
+Remove-Item -LiteralPath $InstallWorkspaceDir -Recurse -Force
 
 Write-Output "Windows payload assembled at: $PayloadDir"
 Write-Output "Runtime archive: $RuntimeArchivePath ($([math]::Round($RuntimeArchiveInfo.Length / 1MB, 1)) MiB)"

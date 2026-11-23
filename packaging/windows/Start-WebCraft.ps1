@@ -14,14 +14,18 @@ function Test-WebCraftRuntime {
   foreach ($RelativePath in @(
     'launcher.mjs',
     'manifest.json',
+    'tsconfig.base.json',
     'node\node.exe',
     'postgres\bin\initdb.exe',
-    'cms\.next\BUILD_ID',
+    'apps\cms\.next\BUILD_ID',
+    'apps\cms\node_modules\payload\bin.js',
+    'apps\cms\node_modules\next\dist\bin\next',
+    'apps\cms\node_modules\@webcraft\core\src\schema.ts',
     'builder\index.html'
   )) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $RelativePath) -PathType Leaf)) { return $false }
   }
-  $Migrations = Join-Path $Root 'cms\src\migrations'
+  $Migrations = Join-Path $Root 'apps\cms\src\migrations'
   if (-not (Test-Path -LiteralPath $Migrations -PathType Container)) { return $false }
   return @((Get-ChildItem -LiteralPath $Migrations -Filter '*.ts' -File -Recurse -ErrorAction SilentlyContinue)).Count -gt 0
 }
