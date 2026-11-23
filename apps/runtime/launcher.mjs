@@ -115,10 +115,15 @@ function runCommand(executable, args, { cwd, env, timeoutMs = 120_000, logPath }
     child.once('error', (error) => { clearTimeout(timer); log?.end(); rejectPromise(error) })
     child.once('close', (code) => {
       clearTimeout(timer)
-      log?.end()
-      if (timedOut) return rejectPromise(new Error('A required WebCraft setup command timed out.'))
-      if (code !== 0) return rejectPromise(new Error(`A required WebCraft setup command failed (exit ${code}).${logPath ? ` See ${logPath}.` : ''}`))
-      resolvePromise({ stdout, stderr })
+      const finish = () => {
+        if (timedOut) return rejectPromise(new Error('A required WebCraft setup command timed out.'))
+        if (code !== 0) return rejectPromise(new Error(`A required WebCraft setup command failed (exit ${code}).${logPath ? ` See ${logPath}.` : ''}`))
+        resolvePromise({ stdout, stderr })
+      }
+      if (log && !log.closed) {
+        log.once('close', finish)
+        log.end()
+      } else finish()
     })
   })
 }
@@ -174,6 +179,7 @@ async function choosePorts(config, configPath, dataRoot, pgIsRunning) {
 async function setUpPostgres(config, dataRoot, logsDir) {
   const pgData = resolve(dataRoot, 'postgres')
   const pgLog = resolve(logsDir, 'postgres.log')
+  const pgCtlLog = resolve(logsDir, 'postgres-control.log')
   const initialized = await exists(resolve(pgData, 'PG_VERSION'))
   if (!initialized) {
     if (await exists(pgData)) {
@@ -197,7 +203,7 @@ async function setUpPostgres(config, dataRoot, logsDir) {
   const status = await runCommand(pgCtl, ['-D', pgData, 'status'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 20_000 }).then(() => true, () => false)
   if (!status) {
     const options = `-h ${PUBLIC_HOST} -p ${config.ports.database} -c listen_addresses=${PUBLIC_HOST}`
-    await runChecked(pgCtl, ['-D', pgData, '-l', pgLog, '-o', options, '-w', 'start'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 90_000, logPath: pgLog })
+    await runChecked(pgCtl, ['-D', pgData, '-l', pgLog, '-o', options, '-w', 'start'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 90_000, logPath: pgCtlLog })
   }
 
   const psqlEnv = { ...pgCtlEnv, PGPASSWORD: config.databasePassword }

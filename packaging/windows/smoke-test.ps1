@@ -43,7 +43,7 @@ function Get-Diagnostics {
       $SecretValues = @($Config.databasePassword, $Config.payloadSecret, $Config.webcraftSecret) | Where-Object { $_ -is [string] -and $_.Length -gt 0 }
     } catch { $SecretValues = @() }
   }
-  foreach ($Path in @($StdoutLog, $StderrLog, (Join-Path $DataDir 'logs\cms.log'), (Join-Path $DataDir 'logs\migrations.log'), (Join-Path $DataDir 'logs\postgres.log'))) {
+  foreach ($Path in @($StdoutLog, $StderrLog, (Join-Path $DataDir 'logs\cms.log'), (Join-Path $DataDir 'logs\migrations.log'), (Join-Path $DataDir 'logs\postgres.log'), (Join-Path $DataDir 'logs\postgres-control.log'))) {
     if (Test-Path -LiteralPath $Path) {
       $Parts += "--- $Path (last lines) ---"
       $Text = Get-Content -LiteralPath $Path -Tail 40 | Out-String
