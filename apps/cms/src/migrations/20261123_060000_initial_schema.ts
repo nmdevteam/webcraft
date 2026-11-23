@@ -43,6 +43,29 @@ const requiredSequences = [
   'users_id_seq',
 ] as const
 
+const payloadMigrationLedgerSql = `
+CREATE TABLE public.payload_migrations (
+    id integer NOT NULL,
+    name character varying,
+    batch numeric,
+    updated_at timestamp(3) with time zone DEFAULT now() NOT NULL,
+    created_at timestamp(3) with time zone DEFAULT now() NOT NULL
+);
+CREATE SEQUENCE public.payload_migrations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.payload_migrations_id_seq OWNED BY public.payload_migrations.id;
+ALTER TABLE ONLY public.payload_migrations ALTER COLUMN id SET DEFAULT nextval('public.payload_migrations_id_seq'::regclass);
+ALTER TABLE ONLY public.payload_migrations
+    ADD CONSTRAINT payload_migrations_pkey PRIMARY KEY (id);
+CREATE INDEX payload_migrations_created_at_idx ON public.payload_migrations USING btree (created_at);
+CREATE INDEX payload_migrations_updated_at_idx ON public.payload_migrations USING btree (updated_at);
+`
+
 type BaselineContract = {
   tables: Map<string, Set<string>>
   enums: Set<string>
@@ -127,8 +150,13 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
     WHERE sequence_schema = 'public'
       AND sequence_name <> 'payload_migrations_id_seq'
   `)
+  const migrationLedger = await db.execute(sql`
+    SELECT to_regclass('public.payload_migrations') IS NOT NULL AS exists
+  `)
+  const hasPayloadMigrationLedger = Boolean(migrationLedger.rows[0]?.exists)
 
   if (tables.rows.length === 0 && enums.rows.length === 0 && sequences.rows.length === 0) {
+    if (!hasPayloadMigrationLedger) await db.execute(sql.raw(payloadMigrationLedgerSql))
     await db.execute(sql.raw(baseline))
     return
   }
@@ -187,6 +215,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
   }
 
   // A schema push may already have created the complete current schema. Leave it and all data untouched.
+  // Payload's migration runner needs its ledger table to record this migration after `up` returns.
+  if (!hasPayloadMigrationLedger) await db.execute(sql.raw(payloadMigrationLedgerSql))
 }
 
 export async function down(_args: MigrateDownArgs): Promise<void> {
