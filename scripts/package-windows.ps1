@@ -78,8 +78,10 @@ foreach ($LicenseFile in @(
 
 $Pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
 if (-not $Pnpm) { throw 'pnpm is required to create the production CMS deployment.' }
-& $Pnpm.Source deploy --legacy --filter '@webcraft/cms' --prod $CmsDir
+& $Pnpm.Source --config.node-linker=hoisted deploy --legacy --filter '@webcraft/cms' --prod $CmsDir
 if ($LASTEXITCODE -ne 0) { throw "pnpm deploy failed with exit code $LASTEXITCODE." }
+$VirtualStorePath = Join-Path $CmsDir 'node_modules\.pnpm'
+if (Test-Path -LiteralPath $VirtualStorePath) { throw 'pnpm deploy did not create the expected flat production node_modules layout; refusing to package deep virtual-store paths.' }
 $RequiredCmsFiles = @(
   (Join-Path $CmsDir 'node_modules\payload\bin.js'),
   (Join-Path $CmsDir 'node_modules\next\dist\bin\next'),
