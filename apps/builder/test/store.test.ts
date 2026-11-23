@@ -133,3 +133,76 @@ describe('builder multi-selection', () => {
     expect(useBuilderStore.getState().future).toEqual([])
   })
 })
+
+describe('builder store Phase 7 history and tree updates', () => {
+  it('preserves valid selection for setNodes and supports explicit clearing', () => {
+    useBuilderStore.getState().setNodes([node('a'), node('b')])
+    useBuilderStore.getState().select('a')
+    useBuilderStore.getState().setNodes([node('a'), node('b')])
+    expect(useBuilderStore.getState().selectedId).toBe('a')
+    expect(useBuilderStore.getState().selectedIds).toEqual(['a'])
+
+    useBuilderStore.getState().setNodes([node('a'), node('b')], false, true)
+    expect(useBuilderStore.getState().selectedId).toBeNull()
+    expect(useBuilderStore.getState().selectedIds).toEqual([])
+  })
+
+  it('path-copies only the changed branch for text and style updates', () => {
+    useBuilderStore.getState().setNodes([
+      node('parent', [node('child'), node('untouched-child')]),
+      node('sibling'),
+    ])
+    const before = useBuilderStore.getState().nodes
+    const parentBefore = before[0]!
+    const childBefore = parentBefore.children[0]!
+    const untouchedChildBefore = parentBefore.children[1]!
+    const siblingBefore = before[1]!
+
+    useBuilderStore.getState().updateText('child', 'updated')
+    const afterText = useBuilderStore.getState().nodes
+    expect(useBuilderStore.getState().past[0]).toBe(before)
+    expect(Object.isFrozen(afterText[1])).toBe(true)
+    expect(afterText[0]).not.toBe(parentBefore)
+    expect(afterText[0]!.children[0]).not.toBe(childBefore)
+    expect(afterText[0]!.children[1]).toBe(untouchedChildBefore)
+    expect(afterText[1]).toBe(siblingBefore)
+
+    useBuilderStore.getState().updateStyle('child', { color: '#123456' })
+    const afterStyle = useBuilderStore.getState().nodes
+    expect(afterStyle[0]!.children[0]).not.toBe(afterText[0]!.children[0])
+    expect(afterStyle[0]!.children[1]).toBe(untouchedChildBefore)
+    expect(afterStyle[1]).toBe(siblingBefore)
+  })
+
+  it('does not create history for missing or no-op text and style updates', () => {
+    useBuilderStore.getState().setNodes([node('a')])
+    useBuilderStore.getState().updateText('missing', 'new')
+    useBuilderStore.getState().updateText('a', 'a')
+    useBuilderStore.getState().updateStyle('missing', { color: '#123456' })
+    useBuilderStore.getState().updateStyle('a', {})
+    useBuilderStore.getState().updateStyle('a', { color: undefined })
+    expect(useBuilderStore.getState().past).toHaveLength(0)
+  })
+
+  it('keeps undo and redo snapshots correct and immutable across later edits', () => {
+    useBuilderStore.getState().setNodes([node('a'), node('b')])
+    useBuilderStore.getState().updateText('a', 'first')
+    const firstPast = useBuilderStore.getState().past[0]!
+    expect(Object.isFrozen(firstPast)).toBe(true)
+    expect(Object.isFrozen(firstPast[0])).toBe(true)
+    expect(firstPast[0]!.props.text).toBe('a')
+
+    useBuilderStore.getState().updateText('a', 'second')
+    expect(firstPast[0]!.props.text).toBe('a')
+    expect(useBuilderStore.getState().past).toHaveLength(2)
+
+    useBuilderStore.getState().undo()
+    expect(useBuilderStore.getState().nodes[0]!.props.text).toBe('first')
+    useBuilderStore.getState().undo()
+    expect(useBuilderStore.getState().nodes[0]!.props.text).toBe('a')
+    useBuilderStore.getState().redo()
+    expect(useBuilderStore.getState().nodes[0]!.props.text).toBe('first')
+    useBuilderStore.getState().redo()
+    expect(useBuilderStore.getState().nodes[0]!.props.text).toBe('second')
+  })
+})

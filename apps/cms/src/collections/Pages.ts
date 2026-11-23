@@ -1,5 +1,6 @@
-import type { CollectionConfig } from 'payload'
+import { APIError, type CollectionConfig } from 'payload'
 import { PageDataSchema, PageUndoHistorySchema } from '@webcraft/core/schema'
+import { nextPageRevision, submittedPageRevision } from '@webcraft/core/page-revision'
 
 export const Pages: CollectionConfig = {
   slug: 'pages',
@@ -39,10 +40,16 @@ export const Pages: CollectionConfig = {
         const homepages = await req.payload.find({ collection: 'pages', where: { and: [{ project: { equals: projectId } }, { isHome: { equals: true } }] }, limit: 2, depth: 0, user: req.user, req: { transactionID: req.transactionID } })
         if (homepages.docs.some((item) => String(item.id) !== String(originalDoc?.id ?? ''))) throw new Error('This project already has a homepage.')
       }
-      if (operation === 'update' && data.revision !== undefined) {
-        const expectedRevision = Number(data.revision)
-        if (expectedRevision !== Number(originalDoc?.revision ?? 0)) throw new Error('Revision conflict: reload this page before saving.')
-        data.revision = expectedRevision + 1
+      if (operation === 'update') {
+        const submittedRevision = submittedPageRevision(req.data, data.revision)
+        const revision = nextPageRevision(submittedRevision, originalDoc?.revision)
+        if (!revision.ok) {
+          const message = revision.status === 409
+            ? 'Revision conflict: reload this page before saving.'
+            : 'A page revision is required. Reload this page before saving.'
+          throw new APIError(message, revision.status, null, true)
+        }
+        data.revision = revision.nextRevision
       }
       return data
     }],

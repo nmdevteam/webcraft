@@ -22,11 +22,17 @@ async function buildProjectSource(project: ProjectRecord, validate = true): Prom
   ])
   if (Number(pageResult.totalDocs ?? pageResult.docs.length) > 100) throw new Error('Exports support at most 100 pages per project.')
   if (Number(assetResult.totalDocs ?? assetResult.docs.length) > 100) throw new Error('Exports support at most 100 assets per project.')
-  const assets = await Promise.all(assetResult.docs.map(async (asset) => {
+  const assets: { filename: string; contentBase64: string }[] = []
+  let totalAssetBytes = 0
+  for (const asset of assetResult.docs) {
     const response = await apiFetch(`/assets/file/${encodeURIComponent(asset.filename)}`)
     if (!response.ok) throw new Error(`Could not read uploaded asset ${asset.filename}.`)
-    return { filename: asset.filename, contentBase64: toBase64(await response.arrayBuffer()) }
-  }))
+    const image = await response.arrayBuffer()
+    if (image.byteLength > 5 * 1024 * 1024) throw new Error(`Uploaded image ${asset.filename} exceeds the 5 MB limit.`)
+    totalAssetBytes += image.byteLength
+    if (totalAssetBytes > 5 * 1024 * 1024) throw new Error('Uploaded images exceed the 5 MB combined export limit.')
+    assets.push({ filename: asset.filename, contentBase64: toBase64(image) })
+  }
   return generateSource({ name: project.name, settings: project.settings, pages: pageResult.docs.map(({ title, slug, isHome, seoTitle, seoDescription, nodes }) => ({ title, slug, isHome, seoTitle, seoDescription, nodes })) } satisfies ExportProject, assets)
 }
 

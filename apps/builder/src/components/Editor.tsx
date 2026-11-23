@@ -9,6 +9,7 @@ import { AuthenticatedImage } from './AuthenticatedImage'
 import { getTopLevelSelectedNodes, useBuilderStore } from '../store/builder'
 import { deleteDraft, getDraft, saveDraft } from '../lib/recovery'
 import { downloadProjectZip, exportProjectToFolder } from '../lib/export'
+import { replaceMediaReferences } from '../lib/media-references'
 import { Button, IconButton, Input, Status } from './ui'
 import { ProjectSettingsModal } from './ProjectSettingsModal'
 import { HistoryModal } from './HistoryModal'
@@ -37,13 +38,6 @@ function makeNode(type: ComponentType): BuilderNode { return { id: crypto.random
 function findNode(nodes: BuilderNode[], id: string | null): BuilderNode | null { if (!id) return null; for (const node of nodes) { if (node.id === id) return node; const child = findNode(node.children,id); if (child) return child } return null }
 function slugify(value: string) { return value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80) || 'page' }
 function getAssetFolderId(asset: Asset) { return typeof asset.folder === 'string' ? asset.folder : asset.folder?.id ?? '' }
-function replaceMediaReferences(value: unknown, oldPath: string, newPath: string): unknown {
-  if (typeof value === 'string') return value.split(oldPath).join(newPath)
-  if (Array.isArray(value)) return value.map((item) => replaceMediaReferences(item, oldPath, newPath))
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceMediaReferences(item, oldPath, newPath)]))
-  return value
-}
-
 function boundedUndoHistory(past: BuilderNode[][], future: BuilderNode[][]): PageUndoHistory {
   const candidate = { past: past.slice(-10), future: future.slice(0, 10) }
   while (true) {
@@ -96,6 +90,11 @@ export function Editor() {
   const futureLength = useBuilderStore((s) => s.future.length)
   const store = useBuilderStore
   const selectedNode = useMemo(() => findNode(nodes, selectedId), [nodes, selectedId])
+  const pageSlugsKey = pages.map((page) => page.slug).join('\0')
+  const pageSlugs = useMemo(() => pageSlugsKey ? pageSlugsKey.split('\0') : [], [pageSlugsKey])
+  const clearCanvasSelection = useCallback(() => store.getState().select(null), [store])
+  const selectCanvasNode = useCallback((id: string, additive?: boolean) => store.getState().select(id, Boolean(additive)), [store])
+  const changeCanvasText = useCallback((id: string, text: string) => store.getState().updateText(id, text), [store])
 
   async function loadProject() {
     setReady(false); setError('')
@@ -117,7 +116,7 @@ export function Editor() {
           initial = draft.nodes; setSaveStatus('unsaved'); setNotice('Recovered local draft. It will autosave shortly.')
         }
       } catch { /* IndexedDB may be unavailable; server persistence still works. */ }
-      store.getState().setNodes(initial)
+      store.getState().setNodes(initial, false, true)
       store.getState().setHistory(page.undoHistory ?? { past: [], future: [] })
       initializedPageRef.current = page.id
       setReady(true)
@@ -146,7 +145,7 @@ export function Editor() {
         lastError = null; break
       } catch (err) {
         lastError = err
-        if ((err as any)?.status === 400 && /revision conflict/i.test(String((err as Error).message))) break
+        if ((err as any)?.status === 409 && /revision conflict/i.test(String((err as Error).message))) break
         if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400 * (2 ** attempt)))
       }
     }
@@ -166,6 +165,21 @@ export function Editor() {
       await new Promise((resolve) => setTimeout(resolve, 75))
     }
     throw new Error('Could not save the current page. Resolve the save error before continuing.')
+  }
+  async function flushActivePageIfDirty() {
+    if (activePage && (saveStatus !== 'saved' || savingRef.current || pendingRef.current)) await flushPage()
+  }
+  async function patchPageRecord(pageId: string, patch: Partial<Page>): Promise<Page> {
+    const encodedId = encodeURIComponent(pageId)
+    const current = await apiDoc<Page>(`/pages/${encodedId}?depth=0`)
+    const saved = await apiDoc<Page>(`/pages/${encodedId}`, {
+      method: 'PATCH',
+      body: jsonBody({ ...patch, revision: current.revision }),
+    })
+    const updated = { ...current, ...saved }
+    setPages((items) => items.map((item) => item.id === updated.id ? updated : item))
+    setActivePage((item) => item?.id === updated.id ? updated : item)
+    return updated
   }
 
   const copySelection = useCallback((cut = false) => {
@@ -240,7 +254,7 @@ export function Editor() {
     if (page.id === activePage?.id) return
     if (saveStatus === 'unsaved' || saveStatus === 'failed') await flushPage()
     const nextQuery = new URLSearchParams(query); nextQuery.set('page', page.id)
-    setReady(false); setActivePage(page); setQuery(nextQuery, { replace: true }); store.getState().setNodes(page.nodes); store.getState().setHistory(page.undoHistory ?? { past: [], future: [] }); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
+    setReady(false); setActivePage(page); setQuery(nextQuery, { replace: true }); store.getState().setNodes(page.nodes, false, true); store.getState().setHistory(page.undoHistory ?? { past: [], future: [] }); initializedPageRef.current = page.id; setReady(true); setSaveStatus('saved')
   }
   useEffect(() => {
     if (!ready || !activePage) return
@@ -289,18 +303,15 @@ export function Editor() {
     const title = window.prompt('Page name', page.title)?.trim(); if (!title || title === page.title) return
     const base = slugify(title); let slug = base; let suffix = 2
     while (pages.some((other) => other.id !== page.id && other.slug === slug)) slug = `${base}-${suffix++}`
-    try { const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ title, slug }) }); const updated = { ...page, ...(saved.doc ?? saved), title, slug }; setPages((current) => current.map((p) => p.id === page.id ? updated : p)); if (activePage?.id === page.id) setActivePage(updated); await captureProjectSnapshot('manual', `Page updated: ${title}`) }
+    try { if (activePage?.id === page.id) await flushActivePageIfDirty(); await patchPageRecord(page.id, { title, slug }); await captureProjectSnapshot('manual', `Page updated: ${title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not rename page.') }
   }
   async function updatePageSlug(page: Page, value: string) {
     const slug = slugify(value)
     if (slug === page.slug) return
     try {
-      if (activePage?.id === page.id) await flushPage()
-      const saved = await api<any>(`/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: jsonBody({ slug }) })
-      const updated = { ...page, ...(saved.doc ?? saved), slug }
-      setPages((current) => current.map((item) => item.id === page.id ? updated : item))
-      if (activePage?.id === page.id) setActivePage(updated)
+      if (activePage?.id === page.id) await flushActivePageIfDirty()
+      await patchPageRecord(page.id, { slug })
       await captureProjectSnapshot('manual', `Page URL updated: ${page.title}`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not update the page URL.') }
   }
@@ -325,12 +336,12 @@ export function Editor() {
     catch (err) { setError(err instanceof Error ? err.message : 'Could not delete page.') }
   }
   async function setHome(page: Page) {
-    try { for (const item of pages) if (item.isHome && item.id !== page.id) await api(`/pages/${item.id}`, { method: 'PATCH', body: jsonBody({ isHome: false }) }); const saved = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ isHome: true }) }); setPages((current) => current.map((p) => ({ ...p, isHome: p.id === page.id }))); if (activePage?.id === page.id) setActivePage({ ...page, ...(saved.doc ?? saved), isHome: true }); await captureProjectSnapshot('manual', `Homepage changed: ${page.title}`) }
+    try { await flushActivePageIfDirty(); for (const item of pages) if (item.isHome && item.id !== page.id) await patchPageRecord(item.id, { isHome: false }); await patchPageRecord(page.id, { isHome: true }); await captureProjectSnapshot('manual', `Homepage changed: ${page.title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not set homepage.') }
   }
   async function updatePageSeo(field: 'seoTitle'|'seoDescription', value: string) {
     if (!activePage) return
-    try { await api(`/pages/${activePage.id}`, { method: 'PATCH', body: jsonBody({ [field]: value }) }); const next = { ...activePage, [field]: value }; setActivePage(next); setPages((current) => current.map((p) => p.id === next.id ? next : p)); await captureProjectSnapshot('manual', `Page SEO updated: ${next.title}`) }
+    try { await flushActivePageIfDirty(); const next = await patchPageRecord(activePage.id, { [field]: value }); await captureProjectSnapshot('manual', `Page SEO updated: ${next.title}`) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not update page SEO.') }
   }
 
@@ -378,8 +389,50 @@ export function Editor() {
   }
   async function deleteAsset(asset: Asset) {
     if (!window.confirm(`Delete “${asset.name || asset.filename}”?`)) return
-    try { const mediaPath = `/media/${asset.filename}`; const nextSettings = { ...settings, logoPath: settings.logoPath === mediaPath ? '' : settings.logoPath, faviconPath: settings.faviconPath === mediaPath ? '' : settings.faviconPath }; if (nextSettings.logoPath !== settings.logoPath || nextSettings.faviconPath !== settings.faviconPath) { await api(`/projects/${projectId}`, { method: 'PATCH', body: jsonBody({ settings: nextSettings }) }); setSettings(nextSettings); setProject((current)=>current?{...current,settings:nextSettings}:current) }; await api(`/assets/${asset.id}`, { method: 'DELETE' }); setAssets((current) => current.filter((item) => item.id !== asset.id)) }
-    catch (err) { setError(err instanceof Error ? err.message : 'Could not delete asset.') }
+    setError('')
+    const mediaPath = `/media/${asset.filename}`
+    try {
+      await flushPage()
+      const projectPages = await apiAllDocs<Page>(`/pages?where[project][equals]=${encodeURIComponent(projectId)}&limit=100&depth=0`)
+      for (const page of projectPages) {
+        const draft = await getDraft(page.id)
+        const draftNodes = draft ? replaceMediaReferences(draft.nodes, mediaPath, '') as BuilderNode[] : undefined
+        const draftChanged = !!draft && JSON.stringify(draftNodes) !== JSON.stringify(draft.nodes)
+        const nextNodes = replaceMediaReferences(page.nodes, mediaPath, '') as BuilderNode[]
+        const nextHistory = {
+          past: (page.undoHistory?.past ?? []).map((snapshot) => replaceMediaReferences(snapshot, mediaPath, '') as BuilderNode[]),
+          future: (page.undoHistory?.future ?? []).map((snapshot) => replaceMediaReferences(snapshot, mediaPath, '') as BuilderNode[]),
+        }
+        const nodesChanged = JSON.stringify(nextNodes) !== JSON.stringify(page.nodes)
+        const historyChanged = JSON.stringify(nextHistory) !== JSON.stringify(page.undoHistory ?? { past: [], future: [] })
+        if (!nodesChanged && !historyChanged && !draftChanged) continue
+        const savedNodes = nodesChanged ? nextNodes : page.nodes
+        let revision = page.revision
+        if (nodesChanged || historyChanged) {
+          const response = await api<any>(`/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: jsonBody({ nodes: savedNodes, undoHistory: nextHistory, revision: page.revision }) })
+          const saved = response?.doc ?? response
+          revision = Number(saved.revision ?? page.revision + 1)
+          setPages((current) => current.map((item) => item.id === page.id ? { ...item, nodes: savedNodes, undoHistory: nextHistory, revision } : item))
+          setActivePage((current) => current?.id === page.id ? { ...current, nodes: savedNodes, undoHistory: nextHistory, revision } : current)
+          if (activePage?.id === page.id) {
+            if (nodesChanged) store.getState().setNodes(savedNodes)
+            store.getState().setHistory(nextHistory)
+          }
+        }
+        if (draft && (draftChanged || nodesChanged || historyChanged)) {
+          await saveDraft({ ...draft, nodes: draftNodes!, revision, savedAt: Date.now() })
+        }
+      }
+      const nextSettings = ProjectSettingsSchema.parse(replaceMediaReferences(settings, mediaPath, '') as ProjectSettings)
+      if (JSON.stringify(nextSettings) !== JSON.stringify(settings)) {
+        await api(`/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: jsonBody({ settings: nextSettings }) })
+        setSettings(nextSettings)
+        setProject((current) => current ? { ...current, settings: nextSettings } : current)
+      }
+      await api(`/assets/${encodeURIComponent(asset.id)}`, { method: 'DELETE' })
+      setAssets((current) => current.filter((item) => item.id !== asset.id))
+      setNotice(`Deleted ${asset.name || asset.filename} and cleared its saved references.`)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete asset. The image was kept if any saved reference could not be cleared.') }
   }
   async function renameAsset(asset: Asset) {
     const extension = /\.(?:png|jpe?g|webp|gif)$/i.exec(asset.filename)?.[0]
@@ -413,21 +466,31 @@ export function Editor() {
       }
       const projectPages = await apiAllDocs<Page>(`/pages?where[project][equals]=${encodeURIComponent(projectId)}&limit=100&depth=0`)
       for (const page of projectPages) {
+        const draft = await getDraft(page.id)
+        const nextDraftNodes = draft ? replaceMediaReferences(draft.nodes, oldPath, newPath) as BuilderNode[] : undefined
+        const draftChanged = !!draft && JSON.stringify(nextDraftNodes) !== JSON.stringify(draft.nodes)
         const nextNodes = replaceMediaReferences(page.nodes, oldPath, newPath) as BuilderNode[]
-        if (JSON.stringify(nextNodes) !== JSON.stringify(page.nodes)) {
-          const response = await api<any>(`/pages/${page.id}`, { method: 'PATCH', body: jsonBody({ nodes: nextNodes, revision: page.revision }) })
-          const saved = response?.doc ?? response
-          const revision = Number(saved.revision ?? page.revision + 1)
-          setPages((current) => current.map((item) => item.id === page.id ? { ...item, nodes: nextNodes, revision } : item))
-          setActivePage((current) => current?.id === page.id ? { ...current, nodes: nextNodes, revision } : current)
-          if (activePage?.id === page.id) store.getState().setNodes(replaceMediaReferences(store.getState().nodes, oldPath, newPath) as BuilderNode[])
+        const nextHistory = {
+          past: (page.undoHistory?.past ?? []).map((snapshot) => replaceMediaReferences(snapshot, oldPath, newPath) as BuilderNode[]),
+          future: (page.undoHistory?.future ?? []).map((snapshot) => replaceMediaReferences(snapshot, oldPath, newPath) as BuilderNode[]),
         }
+        const nodesChanged = JSON.stringify(nextNodes) !== JSON.stringify(page.nodes)
+        const historyChanged = JSON.stringify(nextHistory) !== JSON.stringify(page.undoHistory ?? { past: [], future: [] })
+        if (!nodesChanged && !historyChanged && !draftChanged) continue
+        let revision = page.revision
+        if (nodesChanged || historyChanged) {
+          const response = await api<any>(`/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: jsonBody({ nodes: nextNodes, undoHistory: nextHistory, revision: page.revision }) })
+          const saved = response?.doc ?? response
+          revision = Number(saved.revision ?? page.revision + 1)
+          setPages((current) => current.map((item) => item.id === page.id ? { ...item, nodes: nextNodes, undoHistory: nextHistory, revision } : item))
+          setActivePage((current) => current?.id === page.id ? { ...current, nodes: nextNodes, undoHistory: nextHistory, revision } : current)
+          if (activePage?.id === page.id) {
+            if (nodesChanged) store.getState().setNodes(nextNodes)
+            if (historyChanged) store.getState().setHistory(nextHistory)
+          }
+        }
+        if (draft && (draftChanged || nodesChanged || historyChanged)) await saveDraft({ ...draft, nodes: nextDraftNodes!, revision, savedAt: Date.now() })
       }
-      setPages((current) => current.map((page) => ({ ...page, nodes: replaceMediaReferences(page.nodes, oldPath, newPath) as BuilderNode[] })))
-      setActivePage((current) => current ? { ...current, nodes: replaceMediaReferences(current.nodes, oldPath, newPath) as BuilderNode[] } : current)
-      const currentNodes = store.getState().nodes
-      const nextCurrentNodes = replaceMediaReferences(currentNodes, oldPath, newPath) as BuilderNode[]
-      if (JSON.stringify(nextCurrentNodes) !== JSON.stringify(currentNodes)) store.getState().setNodes(nextCurrentNodes)
       setNotice(`Renamed ${asset.filename} to ${renamed.filename}.`)
     } catch (err) {
       setError(`The file was renamed to ${renamed.filename}, but some saved references could not be updated. Refresh and check the affected pages and website settings.${err instanceof Error ? ` ${err.message}` : ''}`)
@@ -446,9 +509,9 @@ export function Editor() {
       let postSnapshotFailed = false
       await flushPage()
       if (changed) await captureProjectSnapshot('before-settings-change', 'Before website settings change')
-      const response = await api<any>(`/projects/${projectId}`, { method: 'PATCH', body: jsonBody({ name: validSettings.title || project?.name, settings: validSettings }) })
+      const response = await api<any>(`/projects/${projectId}`, { method: 'PATCH', body: jsonBody({ settings: validSettings }) })
       setSettings(validSettings)
-      setProject((p) => p ? { ...p, ...(response.doc ?? response), name: validSettings.title || p.name, settings: validSettings } : p)
+      setProject((p) => p ? { ...p, ...(response.doc ?? response), settings: validSettings } : p)
       if (changed) { try { await captureProjectSnapshot('manual', 'Website settings updated') } catch { postSnapshotFailed = true } }
       setProjectSettingsOpen(false); setNotice(postSnapshotFailed ? 'Settings saved. The pre-change recovery snapshot is available, but a new snapshot could not be added.' : 'Website settings saved.')
     }
@@ -536,7 +599,7 @@ export function Editor() {
         <div className="panel-tip">SVG uploads are disabled to avoid unsafe active content. Renaming an asset changes its stored filename and updates saved references.</div></>}
       {tab==='components' && <InstalledComponentsPanel projectId={projectId} settings={settings} onInsert={(componentNodes)=>{const inserted=store.getState().insertMany(componentNodes);if(inserted)setTab('layers');return inserted}} onError={setError} onNotice={setNotice}/>}
       </div></aside>
-      <main className="editor-canvas-area"><div className="canvas-topline"><div className="canvas-breadcrumb"><FolderOpen size={14}/><span>{project.name}</span><b>/</b><strong>{activePage.title}</strong></div><span className="canvas-width-label">{canvasWidth} px</span></div><div className={`canvas-workbench device-${viewport}`} onDragOver={(e)=>e.preventDefault()} onDrop={onDrop} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><div className="canvas-page" style={{width:`${canvasWidth}px`,maxWidth:'100%'}} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><SiteRenderer nodes={nodes} settings={settings} selectedId={selectedId} selectedIds={selectedIds} editMode onClearSelection={()=>store.getState().select(null)} onSelect={(id,additive)=>store.getState().select(id,Boolean(additive))} onTextChange={(id,text)=>store.getState().updateText(id,text)} pageSlugs={pages.map((p)=>p.slug)}/>{nodes.length===0 && <div className="canvas-empty"><div><SparkleGlyph/><h2>Start with a blank canvas</h2><p>Choose a component from the left, or drag one here.</p><Button variant="primary" size="sm" onClick={()=>{setTab('elements');addNode('hero')}}><Plus size={14}/>Add a hero section</Button></div></div>}</div></div><div className="canvas-footline"><span>Canvas · {viewport}</span><span>Click text to edit · drag components to reorder</span></div></main>
+      <main className="editor-canvas-area"><div className="canvas-topline"><div className="canvas-breadcrumb"><FolderOpen size={14}/><span>{project.name}</span><b>/</b><strong>{activePage.title}</strong></div><span className="canvas-width-label">{canvasWidth} px</span></div><div className={`canvas-workbench device-${viewport}`} onDragOver={(e)=>e.preventDefault()} onDrop={onDrop} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><div className="canvas-page" style={{width:`${canvasWidth}px`,maxWidth:'100%'}} onPointerDown={(e)=>{if(e.target===e.currentTarget)store.getState().select(null)}}><SiteRenderer nodes={nodes} settings={settings} selectedId={selectedId} selectedIds={selectedIds} editMode onClearSelection={clearCanvasSelection} onSelect={selectCanvasNode} onTextChange={changeCanvasText} pageSlugs={pageSlugs}/>{nodes.length===0 && <div className="canvas-empty"><div><SparkleGlyph/><h2>Start with a blank canvas</h2><p>Choose a component from the left, or drag one here.</p><Button variant="primary" size="sm" onClick={()=>{setTab('elements');addNode('hero')}}><Plus size={14}/>Add a hero section</Button></div></div>}</div></div><div className="canvas-footline"><span>Canvas · {viewport}</span><span>Click text to edit · drag components to reorder</span></div></main>
       <aside className="editor-right"><div className="inspector-head"><div><b>Properties</b><small>{selectedIds.length > 1 ? `${selectedIds.length} selected · editing primary` : selectedNode?labels[selectedNode.type]:activePage.title}</small></div><IconButton label="Website settings" onClick={openProjectSettings}><Settings2 size={17}/></IconButton></div><div className="inspector-content">{selectedNode ? <><div className="inspector-section"><span className="inspector-label">CONTENT</span>{['heading','paragraph','text','button','link','hero','features','testimonials','pricing','faq','team','statistics','gallery','cta','card','navbar','footer','section','container'].includes(selectedNode.type) && <label className="field-label">Text<Input key={`text-${selectedNode.id}-${selectedNode.props.text}`} defaultValue={selectedNode.props.text??''} maxLength={2000} onBlur={(e)=>store.getState().updateText(selectedNode.id,e.currentTarget.value)}/></label>}{(selectedNode.type==='button'||selectedNode.type==='link') && <label className="field-label">Link URL<Input key={`href-${selectedNode.id}`} defaultValue={selectedNode.props.href??''} placeholder="https:// or /page" maxLength={500} onBlur={(e)=>{const value=e.currentTarget.value;if(/^(javascript|data|file|vbscript):/i.test(value)) {setError('Unsafe links are not allowed.');e.currentTarget.value='';return}; const n=findNode(store.getState().nodes,selectedNode.id);if(n)store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{href:value}),true)}}/></label>}{selectedNode.type==='heading' && <label className="field-label">Heading level<select className="input" value={selectedNode.props.level??2} onChange={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{level:Number(e.target.value)}),true)}>{[1,2,3,4,5,6].map((n)=><option key={n} value={n}>H{n}</option>)}</select></label>}{selectedNode.type==='image' && <><label className="field-label">Image source<Input key={`src-${selectedNode.id}`} defaultValue={selectedNode.props.src??''} placeholder="https://… or choose an asset" maxLength={1000} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{src:e.currentTarget.value}),true)}/></label><label className="field-label">Alt text<Input key={`alt-${selectedNode.id}`} defaultValue={selectedNode.props.alt??''} maxLength={500} onBlur={(e)=>store.getState().setNodes(transformProps(store.getState().nodes,selectedNode.id,{alt:e.currentTarget.value}),true)}/></label><Button size="sm" onClick={()=>setTab('assets')}><ImagePlus size={14}/>Choose from assets</Button></>}</div><div className="inspector-section"><span className="inspector-label">COLORS</span><label className="field-label">Text color<StyleInput value={selectedNode.style.color} onSave={(value)=>void updateStyle('color',value)} placeholder="#202338"/></label><label className="field-label">Background<StyleInput value={selectedNode.style.backgroundColor} onSave={(value)=>void updateStyle('backgroundColor',value)} placeholder="transparent"/></label></div><NodeTokenControls system={settings.designSystem!} node={selectedNode} onStyle={(field,value)=>void updateStyle(field,value)} onPreset={applyTypographyPreset}/><div className="inspector-section"><span className="inspector-label">TYPOGRAPHY</span><label className="field-label">Font size<StyleInput value={selectedNode.style.fontSize} onSave={(value)=>void updateStyle('fontSize',value)} placeholder="1rem"/></label><label className="field-label">Alignment<select className="input" value={selectedNode.style.textAlign??'left'} onChange={(e)=>void updateStyle('textAlign',e.target.value)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label></div><div className="inspector-section"><span className="inspector-label">SPACING & SHAPE</span><label className="field-label">Padding<StyleInput value={selectedNode.style.padding} onSave={(value)=>void updateStyle('padding',value)} placeholder="1rem"/></label><label className="field-label">Border radius<StyleInput value={selectedNode.style.borderRadius} onSave={(value)=>void updateStyle('borderRadius',value)} placeholder="0.5rem"/></label><label className="field-label">Width<StyleInput value={selectedNode.style.width} onSave={(value)=>void updateStyle('width',value)} placeholder="100%"/></label></div><div className="inspector-actions"><Button size="sm" onClick={()=>store.getState().duplicate(selectedNode.id)}><Copy size={14}/>Duplicate</Button><Button size="sm" variant="danger" onClick={()=>store.getState().remove(selectedNode.id)}><Trash2 size={14}/>Delete</Button></div></> : <><div className="page-properties"><span className="page-properties-mark">▤</span><h3>{activePage.title}</h3><p>Page settings and SEO information.</p><label className="field-label">Page title<Input key={`pt-${activePage.id}-${activePage.title}`} defaultValue={activePage.title} maxLength={120} onBlur={(e)=>{if(e.currentTarget.value.trim() && e.currentTarget.value!==activePage.title) void renamePage({...activePage,title:e.currentTarget.value})}}/></label><label className="field-label">URL slug<Input key={`ps-${activePage.id}-${activePage.slug}`} defaultValue={activePage.slug} maxLength={80} onBlur={(e)=>void updatePageSlug(activePage,e.currentTarget.value)}/></label><label className="field-label">SEO title<Input key={`seo-${activePage.id}-${activePage.seoTitle}`} defaultValue={activePage.seoTitle??''} maxLength={120} placeholder="Page title for search" onBlur={(e)=>void updatePageSeo('seoTitle',e.currentTarget.value)}/></label><label className="field-label">SEO description<textarea key={`desc-${activePage.id}-${activePage.seoDescription}`} className="input textarea" defaultValue={activePage.seoDescription??''} maxLength={300} placeholder="Short page description" onBlur={(e)=>void updatePageSeo('seoDescription',e.currentTarget.value)}/></label><Button size="sm" onClick={()=>void setHome(activePage)}>{activePage.isHome?<Check size={14}/>:<Plus size={14}/>} {activePage.isHome?'Homepage':'Set as homepage'}</Button></div></>}</div><div className="inspector-footer"><span><Check size={13}/>Changes autosave locally</span><button onClick={openProjectSettings}>Website settings</button></div></aside></div>
     {error && <div className="editor-toast error" role="alert">{error}<button onClick={()=>setError('')}><X size={15}/></button></div>}{notice && <div className="editor-toast success">{notice}<button onClick={()=>setNotice('')}><X size={15}/></button></div>}
     {projectSettingsOpen && project && <ProjectSettingsModal projectName={project.name} settings={settings} assets={assets} pages={pages.map((page)=>page.id===activePage.id?nodes:page.nodes)} saving={settingsSaving} onChange={setSettings} onSubmit={(e)=>void saveProjectSettings(e)} onClose={()=>setProjectSettingsOpen(false)} onOpenHistory={()=>{setProjectSettingsOpen(false);void openHistory()}}/>}

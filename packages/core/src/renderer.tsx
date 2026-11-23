@@ -31,11 +31,86 @@ const styleKeys: (keyof BaseNodeStyle)[] = [
   'justifyContent', 'alignItems', 'flexWrap', 'maxWidth', 'minWidth', 'width', 'maxHeight', 'minHeight', 'height', 'overflow', 'opacity',
 ]
 
+export type MediaCacheOptions = {
+  maxIdleEntries?: number
+  createObjectUrl?: (blob: Blob) => string
+  revokeObjectUrl?: (url: string) => void
+}
+
+type MediaCacheEntry = { promise: Promise<string>; refs: number; url?: string; cleared?: boolean; lastUsed: number }
+
+/** Retains up to maxIdleEntries inactive URLs; active media are never evicted or revoked. */
+export function createAuthenticatedMediaCache(options: MediaCacheOptions = {}) {
+  const entries = new Map<string, MediaCacheEntry>()
+  const maxIdleEntries = Math.max(1, options.maxIdleEntries ?? 32)
+  const createObjectUrl = options.createObjectUrl ?? ((blob: Blob) => URL.createObjectURL(blob))
+  const revokeObjectUrl = options.revokeObjectUrl ?? ((url: string) => URL.revokeObjectURL(url))
+  let clock = 0
+
+  const trim = () => {
+    const idle = [...entries.entries()]
+      .filter(([, entry]) => entry.refs === 0 && entry.url)
+      .sort((left, right) => left[1].lastUsed - right[1].lastUsed)
+    while (idle.length > maxIdleEntries) {
+      const [key, entry] = idle.shift()!
+      if (entries.get(key) !== entry) continue
+      revokeObjectUrl(entry.url!)
+      entries.delete(key)
+    }
+  }
+  const load = (key: string, loader: () => Promise<Blob>) => {
+    const existing = entries.get(key)
+    if (existing) {
+      existing.refs += 1
+      existing.lastUsed = ++clock
+      return existing.promise
+    }
+    const entry: MediaCacheEntry = { refs: 1, promise: Promise.resolve(''), lastUsed: ++clock }
+    entry.promise = loader().then((blob) => {
+      const url = createObjectUrl(blob)
+      entry.url = url
+      entry.lastUsed = ++clock
+      if (entry.cleared || entries.get(key) !== entry) {
+        revokeObjectUrl(url)
+        if (entries.get(key) === entry) entries.delete(key)
+      }
+      trim()
+      return url
+    }).catch((error) => {
+      if (entries.get(key) === entry) entries.delete(key)
+      throw error
+    })
+    entries.set(key, entry)
+    return entry.promise
+  }
+  const release = (key: string) => {
+    const entry = entries.get(key)
+    if (!entry) return
+    entry.refs = Math.max(0, entry.refs - 1)
+    if (entry.refs === 0) entry.lastUsed = ++clock
+    trim()
+  }
+  const clear = () => {
+    for (const entry of entries.values()) {
+      entry.cleared = true
+      if (entry.url) revokeObjectUrl(entry.url)
+    }
+    entries.clear()
+  }
+  const isCurrent = (key: string, url: string) => {
+    const entry = entries.get(key)
+    return Boolean(entry && !entry.cleared && entry.url === url)
+  }
+  return { load, release, clear, isCurrent, get size() { return entries.size } }
+}
+
+const authenticatedMediaCache = createAuthenticatedMediaCache()
+
 function useAuthenticatedMediaUrl(source: string): string {
   const [displayUrl, setDisplayUrl] = React.useState('')
   const [sessionVersion, setSessionVersion] = React.useState(0)
   React.useEffect(() => {
-    const onSessionChange = () => { setDisplayUrl(''); setSessionVersion((version) => version + 1) }
+    const onSessionChange = () => { authenticatedMediaCache.clear(); setDisplayUrl(''); setSessionVersion((version) => version + 1) }
     window.addEventListener('webcraft:session-change', onSessionChange)
     return () => window.removeEventListener('webcraft:session-change', onSessionChange)
   }, [])
@@ -48,14 +123,13 @@ function useAuthenticatedMediaUrl(source: string): string {
     }
     const token = window.sessionStorage.getItem('webcraft-session')
     if (!token) return
-    const controller = new AbortController()
-    let objectUrl = ''
+    const key = `${token}\0${match[1]!}`
     let active = true
-    void fetch(`/api/assets/file/${encodeURIComponent(match[1]!)}`, { headers: { Authorization: `JWT ${token}` }, cache: 'no-store', signal: controller.signal })
-      .then((response) => { if (!response.ok) throw new Error('Asset unavailable'); return response.blob() })
-      .then((blob) => { if (active) { objectUrl = URL.createObjectURL(blob); setDisplayUrl(objectUrl) } })
+    void authenticatedMediaCache.load(key, () => fetch(`/api/assets/file/${encodeURIComponent(match[1]!)}`, { headers: { Authorization: `JWT ${token}` }, cache: 'no-store' })
+      .then((response) => { if (!response.ok) throw new Error('Asset unavailable'); return response.blob() }))
+      .then((objectUrl) => { if (active && authenticatedMediaCache.isCurrent(key, objectUrl)) setDisplayUrl(objectUrl) })
       .catch(() => { if (active) setDisplayUrl('') })
-    return () => { active = false; controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+    return () => { active = false; authenticatedMediaCache.release(key) }
   }, [source, sessionVersion])
   return displayUrl
 }
@@ -73,7 +147,9 @@ function safeStyle(node: BuilderNode): CSSProperties {
   return result
 }
 
-export function RenderNode({ node, selectedId, selectedIds, editMode = false, onSelect, onTextChange, pageSlugs = [], formSubmissionEnabled = false }: NodeEditProps & { node: BuilderNode }) {
+type RenderNodeProps = NodeEditProps & { node: BuilderNode }
+
+function renderNode({ node, selectedId, selectedIds, editMode = false, onSelect, onTextChange, pageSlugs = [], formSubmissionEnabled = false }: RenderNodeProps) {
   const tag = blockTags[node.type] ?? 'div'
   const Tag = tag as React.ElementType
   const mediaSrc = useAuthenticatedMediaUrl(node.props.src ? safeUrl(node.props.src, '') : '')
@@ -124,15 +200,27 @@ export function RenderNode({ node, selectedId, selectedIds, editMode = false, on
   return <Tag {...common} {...contentProps}>{editable ? text : null}{children}</Tag>
 }
 
+function selectedFor(props: RenderNodeProps) { return props.selectedIds ? props.selectedIds.includes(props.node.id) : props.selectedId === props.node.id }
+export const RenderNode = React.memo(renderNode, (previous, next) => (
+  previous.node === next.node &&
+  selectedFor(previous) === selectedFor(next) &&
+  previous.editMode === next.editMode &&
+  previous.onSelect === next.onSelect &&
+  previous.onTextChange === next.onTextChange &&
+  previous.pageSlugs === next.pageSlugs &&
+  previous.formSubmissionEnabled === next.formSubmissionEnabled
+))
+
+const breakpointDefaults = { mobile: 600, tablet: 900 }
+
 export function SiteRenderer({ nodes, settings, pageSlug, ...props }: NodeEditProps & { nodes: BuilderNode[]; settings?: ProjectSettings; pageSlug?: string; allowExitAnimation?: boolean }) {
   const rootRef = React.useRef<HTMLDivElement>(null)
-  const breakpointDefaults = { mobile: 600, tablet: 900 }
   const breakpoints = settings?.breakpoints ?? breakpointDefaults
-  const responsiveCss = responsiveStyleCss(nodes, breakpoints)
-  const motionCss = animationCss(nodes, breakpoints, pageSlug)
+  const responsiveCss = React.useMemo(() => responsiveStyleCss(nodes, breakpoints), [nodes, breakpoints])
+  const motionCss = React.useMemo(() => animationCss(nodes, breakpoints, pageSlug), [nodes, breakpoints, pageSlug])
   const logoPath = settings?.logoPath && /^\/media\/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(?:png|jpe?g|webp|gif)$/i.test(settings.logoPath) ? settings.logoPath : ''
   const logoDisplayPath = useAuthenticatedMediaUrl(logoPath)
-  const themeCss = settings ? safeDesignSystemCss(settings.designSystem) : ''
+  const themeCss = React.useMemo(() => settings ? safeDesignSystemCss(settings.designSystem) : '', [settings?.designSystem])
   React.useEffect(() => {
     const root = rootRef.current
     if (!root || props.editMode) return

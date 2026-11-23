@@ -12,12 +12,13 @@
     "./analysis": "./src/analysis.ts",
     "./forms": "./src/forms.ts",
     "./animation": "./src/animation.ts",
-    "./pwa": "./src/pwa.ts"
+    "./pwa": "./src/pwa.ts",
+    "./page-revision": "./src/page-revision.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run test/core.test.ts test/analysis.test.ts test/project-export-security.test.ts test/analysis-route-security.test.ts test/global-search-security.test.ts",
+    "test": "vitest run test/core.test.ts test/analysis.test.ts test/project-export-security.test.ts test/analysis-route-security.test.ts test/global-search-security.test.ts test/github-route-security.test.ts test/export-validation-route-security.test.ts test/marketplace-route-security.test.ts test/renderer-performance.test.ts test/page-revision.test.ts",
     "test:integration": "vitest run test/export-validation.integration.test.ts"
   },
   "dependencies": { "zod": "4.6.7" },

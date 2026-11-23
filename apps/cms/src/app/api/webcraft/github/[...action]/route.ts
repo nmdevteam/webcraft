@@ -17,11 +17,29 @@ function checkOrigin(request: Request) {
   return allowed.has(origin)
 }
 async function body(request: Request, maxBytes = 1_000_000): Promise<Record<string, unknown>> {
-  const length = Number(request.headers.get('content-length') ?? 0)
-  if (length > maxBytes) throw new Error('Request body is too large')
-  const text = await request.text()
-  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error('Request body is too large')
-  const parsed: unknown = JSON.parse(text)
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+  if (contentType !== 'application/json') throw new Error('Content-Type must be application/json')
+  const declaredSize = Number(request.headers.get('content-length') ?? 0)
+  if (Number.isFinite(declaredSize) && declaredSize > maxBytes) throw new Error('Request body is too large')
+  if (!request.body) throw new Error('Expected a JSON object')
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw new Error('Request body is too large')
+      }
+      chunks.push(value)
+    }
+  } finally { reader.releaseLock() }
+  let parsed: unknown
+  try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))) }
+  catch { throw new Error('Malformed JSON body') }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected a JSON object')
   return parsed as Record<string, unknown>
 }
@@ -46,6 +64,8 @@ async function gh<T>(token: string, path: string, init: RequestInit = {}): Promi
 function githubProblem(error: unknown) {
   if (error instanceof Error && error.message === 'UNAUTHORIZED') return json({ error: 'Please sign in again.' }, 401)
   if (error instanceof Error && error.message === 'Request body is too large') return json({ error: error.message }, 413)
+  if (error instanceof Error && error.message === 'Content-Type must be application/json') return json({ error: error.message }, 415)
+  if (error instanceof Error && ['Malformed JSON body', 'Expected a JSON object'].includes(error.message)) return json({ error: error.message }, 400)
   if (error instanceof Error && error.message.startsWith('GitHub request failed')) return json({ error: error.message }, 502)
   if (error instanceof Error && /^(This project|A project|Project|Asset|An uploaded|Export|Generated project)/.test(error.message)) return json({ error: error.message }, 422)
   return json({ error: 'GitHub operation failed. Check the repository, connection, and local export configuration.' }, 500)

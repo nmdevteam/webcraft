@@ -6,6 +6,29 @@ import { createDefaultFormConfig, FormConfigSchema } from '../src/forms'
 import { AnimationSchema } from '../src/animation'
 
 describe('standalone export production validation', () => {
+  it('rejects malformed and non-canonical base64 before running a build', async () => {
+    await expect(validateGeneratedSource({ 'payload.bin': { content: '%%%%', encoding: 'base64' } })).rejects.toThrow('invalid base64')
+    await expect(validateGeneratedSource({ 'payload.bin': { content: 'YQ', encoding: 'base64' } })).rejects.toThrow('invalid base64')
+    await expect(validateGeneratedSource({ 'payload.bin': { content: 'YQ==\n', encoding: 'base64' } })).rejects.toThrow('invalid base64')
+    await expect(validateGeneratedSource({ 'payload.bin': { content: 'YR==', encoding: 'base64' } })).rejects.toThrow('non-canonical base64')
+  })
+
+  it('rejects non-portable and case-colliding export paths', async () => {
+    await expect(validateGeneratedSource({ 'public/CON.png': { content: 'x', encoding: 'utf-8' } })).rejects.toThrow('unsafe path')
+    await expect(validateGeneratedSource({ 'public/Image.png': { content: 'x', encoding: 'utf-8' }, 'public/image.PNG': { content: 'y', encoding: 'utf-8' } })).rejects.toThrow('colliding file paths')
+  })
+
+  it('enforces both per-file and combined source caps', async () => {
+    const overLimit = 'x'.repeat(8 * 1024 * 1024 + 1)
+    await expect(validateGeneratedSource({ 'large.txt': { content: overLimit, encoding: 'utf-8' } })).rejects.toThrow('file that is too large')
+    const chunk = 'x'.repeat(4 * 1024 * 1024)
+    await expect(validateGeneratedSource({
+      'one.txt': { content: chunk, encoding: 'utf-8' },
+      'two.txt': { content: chunk, encoding: 'utf-8' },
+      'three.txt': { content: 'x', encoding: 'utf-8' },
+    })).rejects.toThrow('8 MB source limit')
+  })
+
   it('installs the generated app safely and runs its production build', async () => {
     const files = generateSource({
       name: 'WebCraft export smoke test',
