@@ -45,9 +45,6 @@ $NodeRoot = $NodeExeSource.Directory.FullName
 $NodeVersionOutput = (& $NodeExeSource.FullName --version | Out-String).Trim()
 if ($NodeVersionOutput -ne 'v24.22.3') { throw "Expected bundled Node v24.22.3, received $NodeVersionOutput." }
 Copy-Item -LiteralPath $NodeExeSource.FullName -Destination (Join-Path $NodeDir 'node.exe')
-$NodeRuntimeFiles = @(Get-ChildItem -LiteralPath $NodeRoot -File | Where-Object { $_.Extension -ieq '.dll' -or $_.Name -ieq 'icudtl.dat' })
-if (-not ($NodeRuntimeFiles | Where-Object { $_.Extension -ieq '.dll' })) { throw 'The official Node.js archive has no root runtime DLLs.' }
-foreach ($RuntimeFile in $NodeRuntimeFiles) { Copy-Item -LiteralPath $RuntimeFile.FullName -Destination (Join-Path $NodeDir $RuntimeFile.Name) }
 $NodeLicenseSource = Join-Path $NodeRoot 'LICENSE'
 if (-not (Test-Path -LiteralPath $NodeLicenseSource)) { throw 'The Node.js license file is missing from its official archive.' }
 Copy-Item -LiteralPath $NodeLicenseSource -Destination (Join-Path $PayloadDir 'licenses\Node-LICENSE.txt')
@@ -123,13 +120,13 @@ Copy-Item -LiteralPath $WebCraftLicenseSource -Destination (Join-Path $PayloadDi
 $Notices = @"
 WebCraft $Version — bundled software notices
 
-Node.js v24.22.3 is bundled from the official Windows x64 archive. Its upstream license is included at licenses\Node-LICENSE.txt; the required Node runtime DLLs and ICU data are in the runtime archive.
+Node.js v24.22.3 is bundled from the official Windows x64 archive as the standalone node.exe in the runtime archive. Its upstream license is included at licenses\Node-LICENSE.txt.
 
 PostgreSQL 17.12 Windows x64 binaries from EDB are bundled for local-only database use. The PostgreSQL server license and the command-line tools' third-party license notices are included at licenses\PostgreSQL-server_license.txt and licenses\PostgreSQL-commandlinetools_3rd_party_licenses.txt. PostgreSQL runtime files and the EDB archive's Visual C++ runtime DLLs are included in the runtime archive.
 
 The EDB archive's VCRUNTIME140.dll and VCRUNTIME140_1.dll are included with the bundled PostgreSQL executables. Microsoft runtime information: https://www.microsoft.com/en-us/download/details.aspx?id=48145.
 
-The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under cms\node_modules inside the runtime archive. WebCraft's own license, if present in the source repository, is included at licenses\WebCraft-LICENSE.txt.
+The CMS production dependencies are pinned by pnpm-lock.yaml; package license notices distributed with those production dependencies remain under cms\node_modules inside the runtime archive. WebCraft's license is included at licenses\WebCraft-LICENSE.txt.
 
 WiX Toolset is used only to build the MSI in CI; it is not bundled or installed with WebCraft.
 "@
@@ -143,7 +140,7 @@ if ($RuntimeArchiveInfo.Length -gt 1.5GB) { throw 'The runtime ZIP exceeds the 1
 $RuntimeArchive = [System.IO.Compression.ZipFile]::OpenRead($RuntimeArchivePath)
 try {
   $Entries = $RuntimeArchive.Entries
-  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'node/node.exe', 'node/libcrypto-3-x64.dll', 'postgres/bin/initdb.exe', 'cms/.next/BUILD_ID', 'builder/index.html')
+  $RequiredEntries = @('launcher.mjs', 'manifest.json', 'node/node.exe', 'postgres/bin/initdb.exe', 'cms/.next/BUILD_ID', 'builder/index.html')
   foreach ($RequiredEntry in $RequiredEntries) {
     if (-not ($Entries | Where-Object { $_.FullName -ceq $RequiredEntry })) { throw "Runtime ZIP is missing required entry: $RequiredEntry" }
   }

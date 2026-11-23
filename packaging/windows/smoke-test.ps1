@@ -130,7 +130,6 @@ try {
   foreach ($RequiredRuntimePath in @(
     (Join-Path $RuntimeDir 'launcher.mjs'),
     (Join-Path $RuntimeDir 'node\node.exe'),
-    (Join-Path $RuntimeDir 'node\libcrypto-3-x64.dll'),
     (Join-Path $RuntimeDir 'postgres\bin\initdb.exe'),
     (Join-Path $RuntimeDir 'cms\.next\BUILD_ID'),
     (Join-Path $RuntimeDir 'cms\src\migrations'),
