@@ -27,9 +27,3 @@ export function isPathWithin(root: string, target: string): boolean {
   const relativePath = relative(resolve(root), resolve(target))
   return relativePath !== '' && relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath)
 }
-
-export function sameResolvedPath(left: string, right: string): boolean {
-  const a = resolve(left)
-  const b = resolve(right)
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
-}

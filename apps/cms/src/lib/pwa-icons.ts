@@ -3,7 +3,7 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import sharp, { type Metadata } from 'sharp'
 import { PwaSettingsSchema } from '@webcraft/core/pwa'
-import { getMediaStorageRoot, sameResolvedPath } from './storage-paths'
+import { getMediaStorageRoot, isPathWithin } from './storage-paths'
 
 export const MAX_PRIVATE_MEDIA_BYTES = 5 * 1024 * 1024
 const SAFE_MEDIA_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(png|jpe?g|webp|gif)$/i
@@ -14,15 +14,21 @@ export async function readPrivateMediaBuffer(filename: string, mediaRoot = getMe
   if (basename(filename) !== filename || !SAFE_MEDIA_FILENAME.test(filename)) throw new Error('An uploaded asset has an unsafe filename.')
   mediaRoot = resolve(/*turbopackIgnore: true*/ mediaRoot)
   const rootStat = await lstat(mediaRoot)
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || !sameResolvedPath(await realpath(/*turbopackIgnore: true*/ mediaRoot), mediaRoot)) {
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new Error('The uploaded asset storage directory is not safe.')
   }
   const path = resolve(mediaRoot, filename)
+  if (!isPathWithin(mediaRoot, path)) throw new Error('An uploaded asset path is not safe.')
+  const fileStat = await lstat(/*turbopackIgnore: true*/ path)
+  if (!fileStat.isFile() || fileStat.isSymbolicLink()) throw new Error('An uploaded asset is not a regular file.')
+  const rootRealPath = await realpath(/*turbopackIgnore: true*/ mediaRoot)
+  const fileRealPath = await realpath(/*turbopackIgnore: true*/ path)
+  if (!isPathWithin(rootRealPath, fileRealPath)) throw new Error('An uploaded asset resolves outside its storage directory.')
   const handle = await open(/*turbopackIgnore: true*/ path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
   try {
-    const fileStat = await handle.stat()
-    if (!fileStat.isFile()) throw new Error('An uploaded asset is not a regular file.')
-    if (fileStat.size > MAX_PRIVATE_MEDIA_BYTES) throw new Error('An uploaded asset exceeds the 5 MB limit.')
+    const openedStat = await handle.stat()
+    if (!openedStat.isFile()) throw new Error('An uploaded asset is not a regular file.')
+    if (openedStat.size > MAX_PRIVATE_MEDIA_BYTES) throw new Error('An uploaded asset exceeds the 5 MB limit.')
     const buffer = await handle.readFile()
     if (buffer.byteLength > MAX_PRIVATE_MEDIA_BYTES) throw new Error('An uploaded asset exceeds the 5 MB limit.')
     return buffer
