@@ -4,7 +4,7 @@ WebCraft is a local website-building application. This installer includes WebCra
 
 Starting WebCraft
 
-After installation, open WebCraft from the Start menu. On first launch, WebCraft unpacks its runtime into %LOCALAPPDATA%\WebCraft\runtime-0.1.1. This one-time setup can take several minutes. The compressed runtime archive remains in Program Files while the expanded runtime is cached under your user profile, so allow disk space for both. The runtime is checked before it starts. Later launches reuse the extracted files.
+After installation, open WebCraft from the Start menu. On first launch, WebCraft unpacks its runtime into %LOCALAPPDATA%\WebCraft\rt-0.1.1. This one-time setup can take several minutes. The compressed runtime archive remains in Program Files while the expanded runtime is cached under your user profile, so allow disk space for both. The runtime is checked before it starts. Later launches reuse the extracted files.
 
 The application then initializes its private PostgreSQL database, applies WebCraft's database migrations, starts the local CMS and builder, and opens the builder in your default browser. Leave the launcher window running while you use WebCraft; closing it stops the local services.
 

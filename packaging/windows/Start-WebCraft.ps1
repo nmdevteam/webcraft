@@ -36,9 +36,9 @@ $DataRoot = [System.IO.Path]::GetFullPath($DataRoot)
 $env:WEBCRAFT_DATA_DIR = $DataRoot
 New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
 $ArchivePath = (Resolve-Path -LiteralPath $ArchivePath).Path
-$RuntimeRoot = Join-Path $DataRoot "runtime-$RuntimeVersion"
+$RuntimeRoot = Join-Path $DataRoot "rt-$RuntimeVersion"
 $LockPath = Join-Path $DataRoot ".webcraft-runtime-$RuntimeVersion.lock"
-$StagingPath = Join-Path $DataRoot ".tmp-$RuntimeVersion"
+$StagingPath = Join-Path $DataRoot ".t-$RuntimeVersion"
 $Deadline = [DateTime]::UtcNow.AddMinutes(15)
 $LockStream = $null
 

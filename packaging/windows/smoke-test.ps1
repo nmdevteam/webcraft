@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $MsiPath = (Resolve-Path $MsiPath).Path
 do { $DataDir = Join-Path $env:RUNNER_TEMP ("wc-" + [guid]::NewGuid().ToString('N').Substring(0, 12)) } while (Test-Path -LiteralPath $DataDir)
-$RuntimeDir = Join-Path $DataDir "runtime-$RuntimeVersion"
+$RuntimeDir = Join-Path $DataDir "rt-$RuntimeVersion"
 $StdoutLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stdout.log'
 $StderrLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stderr.log'
 $LauncherProcess = $null
@@ -55,8 +55,8 @@ function Get-Diagnostics {
 function Assert-DefaultRuntimePathBudget {
   param([Parameter(Mandatory = $true)][string]$ArchivePath, [Parameter(Mandatory = $true)][string]$Version)
   $DefaultDataRoot = Join-Path $env:LOCALAPPDATA 'WebCraft'
-  $DefaultStagingRoot = Join-Path $DefaultDataRoot ".tmp-$Version"
-  $DefaultRuntimeRoot = Join-Path $DefaultDataRoot "runtime-$Version"
+  $DefaultStagingRoot = Join-Path $DefaultDataRoot ".t-$Version"
+  $DefaultRuntimeRoot = Join-Path $DefaultDataRoot "rt-$Version"
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
   try {
