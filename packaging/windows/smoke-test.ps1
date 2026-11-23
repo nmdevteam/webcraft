@@ -84,8 +84,22 @@ function Stop-WebCraft {
   $PgData = Join-Path $DataDir 'postgres'
   $PgCtl = Join-Path $RuntimeDir 'postgres\bin\pg_ctl.exe'
   if ((Test-Path -LiteralPath $PgCtl) -and (Test-Path -LiteralPath (Join-Path $PgData 'PG_VERSION'))) {
-    & $PgCtl -D $PgData -m fast -w stop 2>&1 | Out-Null
+    & $PgCtl -D $PgData status *> $null
+    $PgStatus = $LASTEXITCODE
+    if ($PgStatus -eq 0) {
+      & $PgCtl -D $PgData -m fast -w stop 2>&1 | Out-Null
+      $PgStopStatus = $LASTEXITCODE
+      if ($PgStopStatus -ne 0) {
+        $global:LASTEXITCODE = 0
+        throw "PostgreSQL smoke-test shutdown failed with exit code $PgStopStatus."
+      }
+    } elseif ($PgStatus -ne 3) {
+      $global:LASTEXITCODE = 0
+      throw "Could not determine PostgreSQL smoke-test server status (exit code $PgStatus)."
+    }
   }
+  # pg_ctl status returns 3 when the server is already stopped.
+  $global:LASTEXITCODE = 0
 }
 
 function Invoke-Msi {
