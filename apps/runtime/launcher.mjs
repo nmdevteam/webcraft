@@ -181,6 +181,11 @@ async function setUpPostgres(config, dataRoot, logsDir) {
       if (files.length) fail(`The PostgreSQL data directory is incomplete. Back it up before repairing it: ${pgData}`)
     }
     await mkdir(pgData, { recursive: true })
+    if (process.platform === 'win32') {
+      const currentUser = (await runCommand('whoami.exe', [], { cwd: dataRoot, timeoutMs: 5_000 })).stdout.trim()
+      if (!currentUser || /[\r\n]/.test(currentUser)) fail('WebCraft could not determine the current Windows account to secure the local PostgreSQL data directory.')
+      await runChecked('icacls.exe', [pgData, '/grant', `${currentUser}:(OI)(CI)F`], { cwd: dataRoot, timeoutMs: 30_000, logPath: pgLog })
+    }
     const passwordFile = resolve(dataRoot, `.db-password-${process.pid}-${randomBytes(6).toString('hex')}.tmp`)
     await writeFile(passwordFile, `${config.databasePassword}\n`, { flag: 'wx', mode: 0o600 })
     try {
