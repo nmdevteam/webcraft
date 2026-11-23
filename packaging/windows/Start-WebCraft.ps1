@@ -84,7 +84,8 @@ try {
         }
 
         Write-Host "Preparing WebCraft $RuntimeVersion on this Windows account. The first launch may take several minutes."
-        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $StagingPath -ErrorAction Stop
+        # Windows PowerShell 5.1 uses .NET Framework; Expand-Archive requests an unavailable overwrite overload there.
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $StagingPath)
         if (-not (Test-WebCraftRuntime -Root $StagingPath)) { throw 'The extracted WebCraft runtime is incomplete; the application was not started.' }
         [System.IO.Directory]::Move($StagingPath, $RuntimeRoot)
       }
