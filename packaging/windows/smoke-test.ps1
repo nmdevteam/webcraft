@@ -7,7 +7,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $MsiPath = (Resolve-Path $MsiPath).Path
-do { $DataDir = Join-Path $env:RUNNER_TEMP ("wc-" + [guid]::NewGuid().ToString('N').Substring(0, 12)) } while (Test-Path -LiteralPath $DataDir)
+if (-not $env:LOCALAPPDATA) { throw 'The Windows runner must provide LOCALAPPDATA for the per-user PostgreSQL smoke test.' }
+# Match the shipped app-data path length while keeping each test instance isolated.
+do { $DataDir = Join-Path $env:LOCALAPPDATA ("wc" + [guid]::NewGuid().ToString('N').Substring(0, 6)) } while (Test-Path -LiteralPath $DataDir)
 $RuntimeDir = Join-Path $DataDir "rt-$RuntimeVersion"
 $StdoutLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stdout.log'
 $StderrLog = Join-Path $env:RUNNER_TEMP 'webcraft-smoke.stderr.log'
