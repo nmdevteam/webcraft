@@ -91,22 +91,22 @@ async function loadConfig(dataRoot) {
   return { path: configPath, config }
 }
 
-function runCommand(executable, args, { cwd, env, timeoutMs = 120_000, logPath } = {}) {
+function runCommand(executable, args, { cwd, env, timeoutMs = 120_000, logPath, stdio = ['ignore', 'pipe', 'pipe'] } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(executable, args, {
       cwd,
       env: { ...process.env, ...env },
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio,
     })
     let stdout = ''
     let stderr = ''
-    const log = logPath ? createWriteStream(logPath, { flags: 'a', mode: 0o600 }) : null
-    child.stdout.on('data', (chunk) => {
+    const log = logPath && child.stdout && child.stderr ? createWriteStream(logPath, { flags: 'a', mode: 0o600 }) : null
+    child.stdout?.on('data', (chunk) => {
       if (log) log.write(chunk)
       else stdout = (stdout + chunk.toString()).slice(-16_384)
     })
-    child.stderr.on('data', (chunk) => {
+    child.stderr?.on('data', (chunk) => {
       if (log) log.write(chunk)
       else stderr = (stderr + chunk.toString()).slice(-16_384)
     })
@@ -203,14 +203,20 @@ async function setUpPostgres(config, dataRoot, logsDir) {
   const status = await runCommand(pgCtl, ['-D', pgData, 'status'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 20_000 }).then(() => true, () => false)
   if (!status) {
     const options = `-h ${PUBLIC_HOST} -p ${config.ports.database} -c listen_addresses=${PUBLIC_HOST}`
-    await runChecked(pgCtl, ['-D', pgData, '-l', pgLog, '-o', options, '-w', 'start'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 90_000, logPath: pgCtlLog })
+    // pg_ctl starts a long-lived server process; keep its stdio away from Node pipes so
+    // inherited Windows handles cannot prevent the pg_ctl child from closing.
+    await runChecked(pgCtl, ['-D', pgData, '-l', pgLog, '-o', options, '-w', 'start'], { cwd: dataRoot, env: pgCtlEnv, timeoutMs: 90_000, stdio: ['ignore', 'ignore', 'ignore'] })
+    console.log(`PostgreSQL is accepting connections on ${PUBLIC_HOST}:${config.ports.database}.`)
   }
 
   const psqlEnv = { ...pgCtlEnv, PGPASSWORD: config.databasePassword }
+  console.log('Verifying the local PostgreSQL connection...')
   const databaseExists = await runCommand(psql, ['-X', '-A', '-t', '-w', '-h', PUBLIC_HOST, '-p', String(config.ports.database), '-U', DB_USER, '-d', 'postgres', '-c', `SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'`], { cwd: dataRoot, env: psqlEnv, timeoutMs: 30_000 }).then(({ stdout }) => stdout.trim() === '1', () => false)
+  console.log(databaseExists ? 'The WebCraft database already exists.' : 'Creating the WebCraft database...')
   if (!databaseExists) {
     await runChecked(createdb, ['-w', '-h', PUBLIC_HOST, '-p', String(config.ports.database), '-U', DB_USER, DB_NAME], { cwd: dataRoot, env: psqlEnv, timeoutMs: 30_000, logPath: pgCtlLog })
   }
+  console.log('The local PostgreSQL database is ready.')
   return { pgData, pgLog, pgCtlEnv }
 }
 
